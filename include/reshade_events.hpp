@@ -21,6 +21,7 @@ namespace reshade
 		/// <para>Callback function signature: <c>void (api::device *device)</c></para>
 		/// </summary>
 		destroy_device,
+
 		/// <summary>
 		/// Called after 'ID3D11DeviceContext::CreateDeferredContext(1/2/3)', 'ID3D12Device::CreateCommandList(1)' or 'vkAllocateCommandBuffers'.
 		/// <para>Callback function signature: <c>void (api::command_list *cmd_list)</c></para>
@@ -31,6 +32,7 @@ namespace reshade
 		/// <para>Callback function signature: <c>void (api::command_list *cmd_list)</c></para>
 		/// </summary>
 		destroy_command_list,
+
 		/// <summary>
 		/// Called after 'ID3D12Device::CreateCommandQueue' or 'vkCreateDevice'.
 		/// <para>Callback function signature: <c>void (api::command_queue *queue)</c></para>
@@ -44,6 +46,24 @@ namespace reshade
 		/// <para>Callback function signature: <c>void (api::command_queue *queue)</c></para>
 		/// </summary>
 		destroy_command_queue,
+
+		/// <summary>
+		/// Called after 'IDirect3D9::CreateDevice(Ex)', 'IDirect3D9Device::CreateAdditionalSwapChain', 'IDXGIFactory(2)::CreateSwapChain(...)', 'glMakeCurrent' or 'vkCreateSwapchainKHR'.
+		/// <para>Callback function signature: <c>void (api::swapchain *swapchain)</c></para>
+		/// </summary>
+		init_swapchain,
+		/// <summary>
+		/// Called before 'IDirect3D9::CreateDevice(Ex)', 'IDirect3D9Device::CreateAdditionalSwapChain', 'IDXGIFactory(2)::CreateSwapChain(...)', 'glMakeCurrent' or 'vkCreateSwapchainKHR'.
+		/// To overwrite the swap chain description, modify <c>buffer_desc</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::resource_desc *buffer_desc)</c></para>
+		/// </summary>
+		create_swapchain,
+		/// <summary>
+		/// Called on swapchain destruction, before last 'IDirect3DSwapChain9::Release', 'IDXGISwapChain::Release' or 'vkDestroySwapchainKHR'.
+		/// <para>Callback function signature: <c>void (api::swapchain *swapchain)</c></para>
+		/// </summary>
+		destroy_swapchain,
+
 		/// <summary>
 		/// Called after effect runtime initialization (which happens after swap chain creation or a swap chain buffer resize).
 		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime)</c></para>
@@ -56,30 +76,110 @@ namespace reshade
 		destroy_effect_runtime,
 
 		/// <summary>
-		/// Called before 'IDirect3Device9::Create(...)Buffer/Texture', 'IDirect3DDevice9::Create(...)Surface(Ex)', 'ID3D10Device::CreateBuffer/Texture(...)', 'ID3D11Device::CreateBuffer/Texture(...)', 'ID3D12Device::Create(...)Resource', 'gl(Named)Buffer/Tex(ture)Storage(...)(Multisample)', 'gl(Named)RenderbufferStorage(Multisample) or 'vkCreateBuffer/Image'.
-		/// <para>Callback function signature: <c>bool (api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state)</c></para>
+		/// Called after successfull sampler creation from 'ID3D10Device::CreateSamplerState', 'ID3D11Device::CreateSamplerState', 'ID3D12Device::CreateSampler' or 'vkCreateSampler'.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::sampler_desc &amp;desc, api::sampler  sampler)</c></para>
+		/// </summary>
+		init_sampler,
+		/// <summary>
+		/// Called before 'ID3D10Device::CreateSamplerState', 'ID3D11Device::CreateSamplerState', 'ID3D12Device::CreateSampler' or 'vkCreateSampler'.
+		/// To overwrite the sampler with a custom one, call <c>device->create_sampler(..., sampler)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::sampler_desc &amp;desc, api::sampler *sampler)</c></para>
+		/// </summary>
+		create_sampler,
+		/// <summary>
+		/// Called on sampler destruction, before last 'ID3D10SamplerState::Release', 'ID3D11SamplerState::Release' or 'vkDestroySampler'.
+		/// <para>Callback function signature: <c>void (api::device *device, api::sampler sampler)</c></para>
+		/// </summary>
+		destroy_sampler,
+
+		/// <summary>
+		/// Called after successfull resource creation from 'IDirect3Device9::Create(...)Buffer/Texture/Surface(Ex)', 'ID3D10Device::CreateBuffer/Texture(...)', 'ID3D11Device::CreateBuffer/Texture(...)', 'ID3D12Device::Create(...)Resource(...)', 'gl(Named)Buffer/Tex(ture)/RenderbufferStorage(...)(Multisample)' or 'vkCreateBuffer/Image'.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::resource_desc &amp;desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource  resource)</c></para>
+		/// </summary>
+		init_resource,
+		/// <summary>
+		/// Called before 'IDirect3Device9::Create(...)Buffer/Texture/Surface(Ex)', 'ID3D10Device::CreateBuffer/Texture(...)', 'ID3D11Device::CreateBuffer/Texture(...)', 'ID3D12Device::Create(...)Resource(...)', 'gl(Named)Buffer/Tex(ture)/RenderbufferStorage(...)(Multisample)' or 'vkCreateBuffer/Image'.
+		/// To overwrite the resource with a custom one, call <c>device->create_resource(..., resource)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::resource_desc &amp;desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource *resource)</c></para>
 		/// </summary>
 		create_resource,
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::Create(...)Surface(Ex)', 'ID3D10Device::Create(...)View', 'ID3D11Device::Create(...)View', 'ID3D12Device::Create(...)View', 'glTex(ture)Buffer', 'glTextureView(...)' or 'vkCreateBuffer/ImageView'.
-		/// <para>Callback function signature: <c>bool (api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc)</c></para>
+		/// Called on resource destruction, before last 'IDirect3DResource9::Release', 'ID3D10Resource::Release', 'ID3D11Resource::Release', 'ID3D12Resource::Release', 'glDeleteBuffers/Textures' or 'vkDestroyBuffer/Image'.
 		/// </summary>
-		create_resource_view,
+		/// <para>Callback function signature: <c>void (api::device *device, api::resource resource)</c></para>
+		destroy_resource,
 
 		/// <summary>
-		/// Called before 'ID3D10Device::Create(...)State', 'ID3D11Device::Create(...)State', 'ID3D12Device::Create(...)PipelineState' or 'vkCreate(...)Pipelines'.
-		/// <para>Callback function signature: <c>bool (api::device *device, const api::pipeline_desc &desc)</c></para>
+		/// Called after successfull resource view creation from 'IDirect3DDevice9::Create(...)Surface(Ex)', 'ID3D10Device::Create(...)View(1)', 'ID3D11Device::Create(...)View(1)', 'ID3D12Device::Create(...)View', 'glTex(ture)Buffer', 'glTextureView(...)' or 'vkCreateBuffer/ImageView'.
+		/// <para>Callback function signature: <c>void (api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &amp;desc, api::resource_view  view)</c></para>
+		/// </summary>
+		init_resource_view,
+		/// <summary>
+		/// Called before 'IDirect3DDevice9::Create(...)Surface(Ex)', 'ID3D10Device::Create(...)View(1)', 'ID3D11Device::Create(...)View(1)', 'ID3D12Device::Create(...)View', 'glTex(ture)Buffer', 'glTextureView(...)' or 'vkCreateBuffer/ImageView'.
+		/// To overwrite the resource view with a custom one, call <c>device->create_resource_view(..., view)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &amp;desc, api::resource_view *view)</c></para>
+		/// </summary>
+		create_resource_view,
+		/// <summary>
+		/// Called on resource view destruction, before last 'IDirect3DSurface9::Release', 'ID3D10View::Release', 'ID3D11View::Release', 'glDeleteBuffers/Textures' or 'vkDestroyBuffer/ImageView'.
+		/// </summary>
+		/// <para>Callback function signature: <c>void (api::device *device, api::resource_view view)</c></para>
+		destroy_resource_view,
+
+		/// <summary>
+		/// Called after successfull pipeline creation from 'IDirect3DDevice9::Create(...)Shader', 'ID3D10Device::Create(...)(Shader/State)', 'ID3D11Device::Create(...)(Shader/State)', 'ID3D12Device::Create(...)PipelineState' or 'vkCreate(...)Pipelines'.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::pipeline_desc &amp;desc, api::pipeline  pipeline)</c></para>
+		/// </summary>
+		init_pipeline,
+		/// <summary>
+		/// Called before 'IDirect3DDevice9::Create(...)Shader', 'ID3D10Device::Create(...)(Shader/State)', 'ID3D11Device::Create(...)(Shader/State)', 'ID3D12Device::Create(...)PipelineState' or 'vkCreate(...)Pipelines'.
+		/// To overwrite the pipeline with a custom one, call <c>device->create_pipeline(..., pipeline)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::pipeline_desc &amp;desc, api::pipeline *pipeline)</c></para>
 		/// </summary>
 		create_pipeline,
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::Create(...)Shader', 'ID3D10Device::Create(...)Shader', 'ID3D11Device::Create(...)Shader', 'ID3D12Device::Create(...)PipelineState', 'glShaderSource' or 'vkCreateShaderModule'.
-		/// <para>Callback function signature: <c>bool (api::device *device, api::shader_type type, api::shader_format format, const char *entry_point, const void *code, size_t code_size)</c></para>
+		/// Called on pipeline destruction, before last 'IUnknown::Release' or 'vkDestroyPipeline'.
+		/// <para>Callback function signature: <c>bool (api::device *device, api::pipeline pipeline)</c></para>
 		/// </summary>
-		create_shader_module,
+		destroy_pipeline,
+
+		/// <summary>
+		/// Called after successfull pipeline layout creation from 'ID3D12Device::CreateRootSignature' or 'vkCreatePipelineLayout'.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::pipeline_layout_desc &amp;desc, api::pipeline_layout  layout)</c></para>
+		/// </summary>
+		init_pipeline_layout,
+		/// <summary>
+		/// Called before 'ID3D12Device::CreateRootSignature' or 'vkCreatePipelineLayout'.
+		/// To overwrite the pipeline layout with a custom one, call <c>device->create_pipeline_layout(..., layout)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::pipeline_layout_desc &amp;desc, api::pipeline_layout *layout)</c></para>
+		/// </summary>
+		create_pipeline_layout,
+		/// <summary>
+		/// Called on pipeline layout destruction, before last 'ID3D12RootSignature::Release' or 'vkDestroyPipelineLayout'.
+		/// <para>Callback function signature: <c>void (api::device *device, api::pipeline_layout layout)</c></para>
+		/// </summary>
+		destroy_pipeline_layout,
+
+		/// <summary>
+		/// Called after successfull descriptor set layout creation from 'vkCreateDescriptorSetLayout'.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::descriptor_set_layout_desc &amp;desc, api::descriptor_set_layout  layout)</c></para>
+		/// </summary>
+		init_descriptor_set_layout,
+		/// <summary>
+		/// Called before 'vkCreateDescriptorSetLayout'.
+		/// To overwrite the descriptor set layout with a custom one, call <c>device->create_descriptor_set_layout(..., layout)</c> in the callback and return <c>true</c>.
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::descriptor_set_layout_desc &amp;desc, api::descriptor_set_layout *layout)</c></para>
+		/// </summary>
+		create_descriptor_set_layout,
+		/// <summary>
+		/// Called on descriptor set layout descriptor, before 'vkDestroyDescriptorSetLayout'.
+		/// <para>Callback function signature: <c>void (api::device *device, api::descriptor_set_layout layout)</c></para>
+		/// </summary>
+		destroy_descriptor_set_layout,
 
 		/// <summary>
 		/// Called before 'ID3D10Device::UpdateSubresource' or 'ID3D11DeviceContext::UpdateSubresource'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, const void *data, api::resource dst, uint64_t dst_offset, uint64_t size)</c></para>
+		/// <para>Callback function signature: <c>bool (api::device *device, const void *data, api::resource dst, uint64_t dst_offset, uint64_t size)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Destination resource will be in the <see cref="resource_usage::copy_dest"/> state.
@@ -87,7 +187,7 @@ namespace reshade
 		upload_buffer_region,
 		/// <summary>
 		/// Called before 'ID3D10Device::UpdateSubresource' or 'ID3D11DeviceContext::UpdateSubresource'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, const void *data, uint32_t row_pitch, uint32_t slice_pitch, api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6])</c></para>
+		/// <para>Callback function signature: <c>bool (api::device *device, const api::subresource_data &data, api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6])</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Destination resource will be in the <see cref="resource_usage::copy_dest"/> state.
@@ -95,13 +195,36 @@ namespace reshade
 		upload_texture_region,
 
 		/// <summary>
+		/// Called before 'ID3D12Device::Create(...)View', 'ID3D12Device::CopyDescriptors(Simple)' or 'vkUpdateDescriptorSets'.
+		/// <para>Callback function signature: <c>bool (api::device *device, uint32_t num_writes, const api::descriptor_set_write *writes, uint32_t num_copies, const api::descriptor_set_copy *copies)</c></para>
+		/// </summary>
+		update_descriptor_sets,
+
+		/// <summary>
+		/// Called after 'ID3D12GraphicsCommandList::ResourceBarrier' or 'vkCmdPipelineBarrier'.
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, uint32_t num_resources, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states)</c></para>
+		/// </summary>
+		barrier,
+
+		/// <summary>
+		/// Called after 'ID3D12GraphicsCommandList::BeginRenderPass', 'vkCmdBeginRenderPass' or after render targets were set via 'IDirect3DDevice9::SetRenderTarget', 'IDirect3DDevice9::SetDepthStencilSurface', 'ID3D10Device::OMSetRenderTargets', 'ID3D11DeviceContext::OMSetRenderTargets(AndUnorderedAccessViews)', 'ID3D12GraphicsCommandList::OMSetRenderTargets' or 'glBindFramebuffer'.
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::render_pass pass)</c></para>
+		/// </summary>
+		begin_render_pass,
+		/// <summary>
+		/// Called after 'ID3D12GraphicsCommandList::EndRenderPass', 'vkCmdEndRenderPass' or after previous render targets were unset via 'IDirect3DDevice9::SetRenderTarget', 'IDirect3DDevice9::SetDepthStencilSurface', 'ID3D10Device::OMSetRenderTargets', 'ID3D11DeviceContext::OMSetRenderTargets(AndUnorderedAccessViews)', 'ID3D12GraphicsCommandList::OMSetRenderTargets' or 'glBindFramebuffer'.
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list)</c></para>
+		/// </summary>
+		finish_render_pass,
+
+		/// <summary>
 		/// Called after 'IDirect3DDevice9::Set(...)Shader', 'ID3D10Device::(...)SetShader', 'ID3D11DeviceContext::(...)SetShader', 'ID3D12GraphicsCommandList::SetPipelineState', 'glUseProgram' or 'vkCmdBindPipeline'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::pipeline_type type, api::pipeline pipeline)</c></para>
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::pipeline_stage type, api::pipeline pipeline)</c></para>
 		/// </summary>
 		bind_pipeline,
 		/// <summary>
 		/// Called after 'IDirect3DDevice9::SetRenderState', 'ID3D10Device::(...)Set(...)State', 'ID3D11DeviceContext::(...)Set(...)State', 'ID3D12GraphicsCommandList::(...)Set(...)', 'gl(...)', 'vkCmdSet(...)' or 'vkCmdBindPipeline'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, uint32_t count, const api::pipeline_state *states, const uint32_t *values)</c></para>
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, uint32_t count, const api::dynamic_state *states, const uint32_t *values)</c></para>
 		/// </summary>
 		bind_pipeline_states,
 		/// <summary>
@@ -119,17 +242,17 @@ namespace reshade
 
 		/// <summary>
 		/// Called after 'IDirect3DDevice9::Set(...)ShaderConstant(...)', 'ID3D12GraphicsCommandList::Set(...)Root32BitConstant(s)', 'glUniform(...)' or 'vkCmdPushConstants'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::shader_stage stage, api::pipeline_layout layout, uint32_t layout_index, uint32_t first, uint32_t count, const uint32_t *values)</c></para>
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_index, uint32_t first, uint32_t count, const uint32_t *values)</c></para>
 		/// </summary>
 		push_constants,
 		/// <summary>
 		/// Called after 'IDirect3DDevice9::Set(SamplerState/Texture)', 'ID3D10Device::(...)Set(Samplers/ShaderResources/ConstantBuffers)', 'ID3D11DeviceContext::(...)Set(Samplers/ShaderResources/UnorderedAccessViews/ConstantBuffers)', 'ID3D12GraphicsCommandList::Set(...)RootConstantBufferView' or 'glBind(Sampler/Texture/TextureUnit/ImageTexture/Buffer)(s)(...)'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::shader_stage stage, api::pipeline_layout layout, uint32_t layout_index, api::descriptor_type type, uint32_t first, uint32_t count, const void *descriptors)</c></para>
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_index, api::descriptor_type type, uint32_t first, uint32_t count, const void *descriptors)</c></para>
 		/// </summary>
 		push_descriptors,
 		/// <summary>
 		/// Called after 'ID3D12GraphicsCommandList::Set(...)RootDescriptorTable' or 'vkCmdBindDescriptorSets'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::pipeline_type type, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_set *sets)</c></para>
+		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_set *sets)</c></para>
 		/// </summary>
 		bind_descriptor_sets,
 
@@ -161,40 +284,12 @@ namespace reshade
 		dispatch,
 		/// <summary>
 		/// Called before 'ID3D11DeviceContext::Draw(Indexed)InstancedIndirect', 'ID3D11DeviceContext::DispatchIndirect', 'ID3D12GraphicsCommandList::ExecuteIndirect', 'gl(Multi)Draw(...)Indirect', 'glDispatchComputeIndirect', 'vkCmdDraw(Indexed)Indirect' or 'vkCmdDispatchIndirect'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, uint32_t type, api::resource buffer, uint64_t offset, uint32_t draw_count, uint32_t stride)</c></para>
-		/// <para>The "type" parameter to the callback function will be <c>1</c> for draw commands, <c>2</c> for indexed draw commands or <c>3</c> for dispatch commands. Can also be <c>0</c> if the type could not be determined.</para>
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::indirect_command type, api::resource buffer, uint64_t offset, uint32_t draw_count, uint32_t stride)</c></para>
 		/// </summary>
 		draw_or_dispatch_indirect,
 
 		/// <summary>
-		/// Called after 'IDirect3DDevice9::SetRenderTarget', 'IDirect3DDevice9::SetDepthStencilSurface', 'ID3D10Device::OMSetRenderTargets', 'ID3D11DeviceContext::OMSetRenderTargets(AndUnorderedAccessViews)', 'ID3D12GraphicsCommandList::OMSetRenderTargets', 'ID3D12GraphicsCommandList::BeginRenderPass', 'glBindFramebuffer', 'vkCmdBeginRenderPass' or 'vkCmdNextSubpass'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, uint32_t count, const api::resource_view *rtvs, api::resource_view dsv)</c></para>
-		/// </summary>
-		begin_render_pass,
-		/// <summary>
-		/// Called before 'IDirect3DDevice9::SetRenderTarget', 'IDirect3DDevice9::SetDepthStencilSurface', 'ID3D10Device::OMSetRenderTargets', 'ID3D11DeviceContext::OMSetRenderTargets(AndUnorderedAccessViews)', 'ID3D12GraphicsCommandList::OMSetRenderTargets', 'ID3D12GraphicsCommandList::EndRenderPass', 'glBindFramebuffer' or 'vkCmdEndRenderPass'.
-		/// <para>Callback function signature: <c>void (api::command_list *cmd_list)</c></para>
-		/// </summary>
-		end_render_pass,
-
-		/// <summary>
-		/// Called before 'IDirect3DDevice9::StretchRect', 'glBlit(Named)Framebuffer' or 'vkCmdBlitImage'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6], api::texture_filter filter)</c></para>
-		/// </summary>
-		/// <remarks>
-		/// Source resource will be in the <see cref="resource_usage::copy_source"/> state. Destination resource will be in the <see cref="resource_usage::copy_dest"/> state.
-		/// </remarks>
-		blit,
-		/// <summary>
-		/// Called before 'IDirect3DDevice9::StretchRect', 'ID3D10Device::ResolveSubresource', 'ID3D11DeviceContext::ResolveSubresource', 'ID3D12GraphicsCommandList::ResolveSubresource', 'glBlit(Named)Framebuffer' or 'vkCmdResolveImage'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_offset[3], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], const uint32_t size[3], api::format format)</c></para>
-		/// </summary>
-		/// <remarks>
-		/// Source resource will be in the <see cref="resource_usage::resolve_source"/> state. Destination resource will be in the <see cref="resource_usage::resolve_dest"/> state.
-		/// </remarks>
-		resolve,
-		/// <summary>
-		/// Called before 'IDirect3DDevice9::UpdateTexture', 'ID3D10Device::CopyResource', 'ID3D11DeviceContext::CopyResource' or 'ID3D12GraphicsCommandList::CopyResource'.
+		/// Called before 'IDirect3DDevice9::UpdateTexture', 'IDirect3DDevice9::GetRenderTargetData', 'ID3D10Device::CopyResource', 'ID3D11DeviceContext::CopyResource' or 'ID3D12GraphicsCommandList::CopyResource'.
 		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, api::resource dst)</c></para>
 		/// </summary>
 		/// <remarks>
@@ -202,7 +297,7 @@ namespace reshade
 		/// </remarks>
 		copy_resource,
 		/// <summary>
-		/// Called before 'ID3D12GraphicsCommandList::CopyBufferRegion' or 'vkCmdCopyBuffer'.
+		/// Called before 'ID3D12GraphicsCommandList::CopyBufferRegion', 'glCopy(Named)BufferSubData' or 'vkCmdCopyBuffer'.
 		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint64_t src_offset, api::resource dst, uint64_t dst_offset, uint64_t size)</c></para>
 		/// </summary>
 		/// <remarks>
@@ -218,8 +313,8 @@ namespace reshade
 		/// </remarks>
 		copy_buffer_to_texture,
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::UpdateSurface', 'ID3D10Device::CopySubresourceRegion', 'ID3D11DeviceContext::CopySubresourceRegion', 'ID3D12GraphicsCommandList::CopyTextureRegion' or 'vkCmdCopyImage'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_offset[3], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], const uint32_t size[3])</c></para>
+		/// Called before 'IDirect3DDevice9::UpdateSurface', 'IDirect3DDevice9::StretchRect', 'ID3D10Device::CopySubresourceRegion', 'ID3D11DeviceContext::CopySubresourceRegion', 'ID3D12GraphicsCommandList::CopyTextureRegion', 'glBlit(Named)Framebuffer', 'glCopyImageSubData', 'glCopyTex(ture)(Sub)Image(...)', 'vkCmdBlitImage' or 'vkCmdCopyImage'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6], api::filter_type filter)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Source resource will be in the <see cref="resource_usage::copy_source"/> state. Destination resource will be in the <see cref="resource_usage::copy_dest"/> state.
@@ -233,26 +328,39 @@ namespace reshade
 		/// Source resource will be in the <see cref="resource_usage::copy_source"/> state. Destination resource will be in the <see cref="resource_usage::copy_dest"/> state.
 		/// </remarks>
 		copy_texture_to_buffer,
+		/// <summary>
+		/// Called before 'IDirect3DDevice9::StretchRect', 'ID3D10Device::ResolveSubresource', 'ID3D11DeviceContext::ResolveSubresource', 'ID3D12GraphicsCommandList::ResolveSubresource', 'ID3D12GraphicsCommandList1::ResolveSubresourceRegion', 'glBlit(Named)Framebuffer' or 'vkCmdResolveImage'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], api::format format)</c></para>
+		/// </summary>
+		/// <remarks>
+		/// Source resource will be in the <see cref="resource_usage::resolve_source"/> state. Destination resource will be in the <see cref="resource_usage::resolve_dest"/> state.
+		/// </remarks>
+		resolve_texture_region,
 
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::Clear', 'ID3D10Device::ClearDepthStencilView', 'ID3D11DeviceContext::ClearDepthStencilView', 'ID3D12GraphicsCommandList::ClearDepthStencilView', 'glClear(...) ', 'vkCmdBeginRenderPass', 'vkCmdClearAttachments' or 'vkCmdClearDepthStencilImage'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view dsv, uint32_t clear_flags, float depth, uint8_t stencil)</c></para>
+		/// Called before 'IDirect3DDevice9::Clear', 'glClear' or 'vkCmdClearAttachments'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::attachment_type clear_flags, const float color[4], float depth, uint8_t stencil, uint32_t num_rects, const int32_t *rects)</c></para>
+		/// </summary>
+		clear_attachments,
+		/// <summary>
+		/// Called before 'ID3D10Device::ClearDepthStencilView', 'ID3D11DeviceContext::ClearDepthStencilView', 'ID3D11DeviceContext1::ClearView', 'ID3D12GraphicsCommandList::ClearDepthStencilView', 'ID3D12GraphicsCommandList::BeginRenderPass', 'glClear(NamedFrame)Bufferfi', 'vkCmdClearDepthStencilImage' or 'vkCmdBeginRenderPass'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view dsv, api::attachment_type clear_flags, float depth, uint8_t stencil, uint32_t num_rects, const int32_t *rects)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Resource will be in the <see cref="resource_usage::depth_stencil_write"/> state.
 		/// </remarks>
 		clear_depth_stencil_view,
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::Clear', 'ID3D10Device::ClearRenderTargetView', 'ID3D11DeviceContext::ClearRenderTargetView', 'ID3D12GraphicsCommandList::ClearRenderTargetView', 'glClear(...)', 'vkCmdBeginRenderPass', 'vkCmdClearAttachments' or 'vkCmdClearColorImage'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, uint32_t count, const api::resource_view *rtvs, const float color[4])</c></para>
+		/// Called before 'ID3D10Device::ClearRenderTargetView', 'ID3D11DeviceContext::ClearRenderTargetView', 'ID3D11DeviceContext1::ClearView', 'ID3D12GraphicsCommandList::ClearRenderTargetView', 'ID3D12GraphicsCommandList::BeginRenderPass', 'glClear(NamedFrame)Bufferfv', 'vkCmdClearColorImage' or 'vkCmdBeginRenderPass'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view rtv, const float color[4], uint32_t num_rects, const int32_t *rects)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Resources will be in the <see cref="resource_usage::render_target"/> state.
 		/// </remarks>
-		clear_render_target_views,
+		clear_render_target_view,
 		/// <summary>
 		/// Called before 'ID3D11DeviceContext::ClearUnorderedAccessViewUint' or 'ID3D12GraphicsCommandList::ClearUnorderedAccessViewUint'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view uav, const uint32_t values[4])</c></para>
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view uav, const uint32_t values[4], uint32_t num_rects, const int32_t *rects)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Resource will be in the <see cref="resource_usage::unordered_access"/> state.
@@ -260,12 +368,18 @@ namespace reshade
 		clear_unordered_access_view_uint,
 		/// <summary>
 		/// Called before 'ID3D11DeviceContext::ClearUnorderedAccessViewFloat', 'ID3D11DeviceContext1::ClearView' or 'ID3D12GraphicsCommandList::ClearUnorderedAccessViewFloat'.
-		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view uav, const float values[4])</c></para>
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view uav, const float values[4], uint32_t num_rects, const int32_t *rects)</c></para>
 		/// </summary>
 		/// <remarks>
 		/// Resource will be in the <see cref="resource_usage::unordered_access"/> state.
 		/// </remarks>
 		clear_unordered_access_view_float,
+
+		/// <summary>
+		/// Called before 'ID3D10Device::GenerateMips', 'ID3D11DeviceContext::GenerateMips' or 'glGenerate(Texture)Mipmap'.
+		/// <para>Callback function signature: <c>bool (api::command_list *cmd_list, api::resource_view srv)</c></para>
+		/// </summary>
+		generate_mipmaps,
 
 		/// <summary>
 		/// Called before 'ID3D12GraphicsCommandList::Reset' or 'vkBeginCommandBuffer'.
@@ -285,25 +399,25 @@ namespace reshade
 
 		/// <summary>
 		/// Called before 'IDXGISwapChain::ResizeBuffers' or after existing swap chain was updated via 'vkCreateSwapchainKHR'.
-		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime, uint32_t width, uint32_t height)</c></para>
+		/// <para>Callback function signature: <c>void (api::swapchain *swapchain, uint32_t width, uint32_t height)</c></para>
 		/// </summary>
 		resize,
 		/// <summary>
-		/// Called before 'IDirect3DDevice9::Present(Ex)', 'IDirect3DSwapChain9::Present', 'IDXGISwapChain::Present(1)', 'wglSwapBuffers' or 'vkQueuePresentKHR'.
-		/// <para>Callback function signature: <c>void (api::command_queue *present_queue, api::effect_runtime *runtime)</c></para>
+		/// Called before 'IDirect3DDevice9::Present(Ex)', 'IDirect3DSwapChain9::Present', 'IDXGISwapChain::Present(1)', 'D3D12CommandQueueDownlevel::Present', 'wglSwapBuffers' or 'vkQueuePresentKHR'.
+		/// <para>Callback function signature: <c>void (api::command_queue *queue, api::swapchain *swapchain)</c></para>
 		/// </summary>
 		present,
 
 		/// <summary>
-		/// Called right after ReShade effects were rendered.
-		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime, api::command_list *cmd_list)</c></para>
-		/// </summary>
-		reshade_after_effects,
-		/// <summary>
 		/// Called right before ReShade effects are rendered.
 		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime, api::command_list *cmd_list)</c></para>
 		/// </summary>
-		reshade_before_effects,
+		reshade_begin_effects,
+		/// <summary>
+		/// Called right after ReShade effects were rendered.
+		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime, api::command_list *cmd_list)</c></para>
+		/// </summary>
+		reshade_finish_effects,
 
 #ifdef RESHADE_ADDON
 		max // Last value used internally by ReShade to determine number of events in this enum
@@ -312,25 +426,6 @@ namespace reshade
 
 	template <addon_event ev>
 	struct addon_event_traits;
-	template <addon_event ev>
-	class  addon_event_trampoline;
-	template <typename F>
-	class  addon_event_trampoline_data;
-	template <typename R, typename... Args>
-	class  addon_event_trampoline_data<R(Args...)>
-	{
-	public:
-		inline R operator()(Args... args) {
-			return (next_callback != last_callback ? *next_callback++ : term_callback)(*this, std::forward<Args>(args)...);
-		}
-
-	protected:
-		using callback_type = R(*)(addon_event_trampoline_data &, Args...);
-
-		callback_type *next_callback; // Pointer to the next function in the call chain to execute
-		callback_type *last_callback; // Pointer to the last function in the call chain
-		callback_type  term_callback; // Terminator function that is called by the last function in the chain
-	};
 
 	// Define callback event
 #define DEFINE_ADDON_EVENT_TYPE_1(ev, ...) \
@@ -348,76 +443,96 @@ namespace reshade
 		static const int type = 2; \
 	}
 
-	// Define event with a call chain (first argument points to the next function in the chain that should be called)
-#define DEFINE_ADDON_EVENT_TYPE_3(ev, ...) \
-	template <> \
-	struct addon_event_traits<ev> { \
-		using decl = bool(*)(addon_event_trampoline<ev> &next, __VA_ARGS__); \
-		static const int type = 3; \
-	}; \
-	template <> \
-	class  addon_event_trampoline<ev> : public addon_event_trampoline_data<bool(__VA_ARGS__)> {}
-
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_device, api::device *device);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_device, api::device *device);
+
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_command_list, api::command_list *cmd_list);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_command_list, api::command_list *cmd_list);
+
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_command_queue, api::command_queue *queue);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_command_queue, api::command_queue *queue);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_swapchain, api::swapchain *swapchain);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_swapchain, api::resource_desc *buffer_desc);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_swapchain, api::swapchain *swapchain);
+
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_effect_runtime, api::effect_runtime *runtime);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_effect_runtime, api::effect_runtime *runtime);
 
-	DEFINE_ADDON_EVENT_TYPE_3(addon_event::create_resource, api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state);
-	DEFINE_ADDON_EVENT_TYPE_3(addon_event::create_resource_view, api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_sampler, api::device *device, const api::sampler_desc &desc, api::sampler sampler);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_sampler, api::device *device, const api::sampler_desc &desc, api::sampler *sampler);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_sampler, api::device *device, api::sampler sampler);
 
-	DEFINE_ADDON_EVENT_TYPE_3(addon_event::create_pipeline, api::device *device, const api::pipeline_desc &desc);
-	DEFINE_ADDON_EVENT_TYPE_3(addon_event::create_shader_module, api::device *device, api::shader_stage type, api::shader_format format, const char *entry_point, const void *code, size_t code_size);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_resource, api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource resource);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_resource, api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource *resource);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_resource, api::device *device, api::resource resource);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_resource_view, api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view view);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_resource_view, api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view *view);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_resource_view, api::device *device, api::resource_view view);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_pipeline, api::device *device, const api::pipeline_desc &desc, api::pipeline pipeline);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_pipeline, api::device *device, const api::pipeline_desc &desc, api::pipeline *pipeline);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_pipeline, api::device *device, api::pipeline pipeline);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_pipeline_layout, api::device *device, const api::pipeline_layout_desc &desc, api::pipeline_layout layout);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_pipeline_layout, api::device *device, const api::pipeline_layout_desc &desc, api::pipeline_layout *layout);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_pipeline_layout, api::device *device, api::pipeline_layout layout);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::init_descriptor_set_layout, api::device *device, const api::descriptor_set_layout_desc &desc, api::descriptor_set_layout layout);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::create_descriptor_set_layout, api::device *device, const api::descriptor_set_layout_desc &desc, api::descriptor_set_layout *layout);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::destroy_descriptor_set_layout, api::device *device, api::descriptor_set_layout layout);
 
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::upload_buffer_region, api::device *device, const void *data, api::resource dst, uint64_t dst_offset, uint64_t size);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::upload_texture_region, api::device *device, const void *data, uint32_t row_pitch, uint32_t slice_pitch, api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6]);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::upload_texture_region, api::device *device, const api::subresource_data &data, api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6]);
 
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_pipeline, api::command_list *cmd_list, api::pipeline_type type, api::pipeline pipeline);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_pipeline_states, api::command_list *cmd_list, uint32_t count, const api::pipeline_state *states, const uint32_t *values);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::update_descriptor_sets, api::device *device, uint32_t num_writes, const api::descriptor_set_write *writes, uint32_t num_copies, const api::descriptor_set_copy *copies);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::barrier, api::command_list *cmd_list, uint32_t num_resources, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::begin_render_pass, api::command_list *cmd_list, api::render_pass pass);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::finish_render_pass, api::command_list *cmd_list);
+
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_pipeline, api::command_list *cmd_list, api::pipeline_stage type, api::pipeline pipeline);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_pipeline_states, api::command_list *cmd_list, uint32_t count, const api::dynamic_state *states, const uint32_t *values);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_viewports, api::command_list *cmd_list, uint32_t first, uint32_t count, const float *viewports);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_scissor_rects, api::command_list *cmd_list, uint32_t first, uint32_t count, const int32_t *rects);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::push_constants, api::command_list *cmd_list, api::shader_stage stage, api::pipeline_layout layout, uint32_t layout_index, uint32_t first, uint32_t count, const uint32_t *values);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::push_descriptors, api::command_list *cmd_list, api::shader_stage stage, api::pipeline_layout layout, uint32_t layout_index, api::descriptor_type type, uint32_t first, uint32_t count, const void *descriptors);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_descriptor_sets, api::command_list *cmd_list, api::pipeline_type type, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_set *sets);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::push_constants, api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_index, uint32_t first, uint32_t count, const uint32_t *values);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::push_descriptors, api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_index, api::descriptor_type type, uint32_t first, uint32_t count, const void *descriptors);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_descriptor_sets, api::command_list *cmd_list, api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_set *sets);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_index_buffer, api::command_list *cmd_list, api::resource buffer, uint64_t offset, uint32_t index_size);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::bind_vertex_buffers, api::command_list *cmd_list, uint32_t first, uint32_t count, const api::resource *buffers, const uint64_t *offsets, const uint32_t *strides);
 
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::draw, api::command_list *cmd_list, uint32_t vertices, uint32_t instances, uint32_t first_vertex, uint32_t first_instance);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::draw_indexed, api::command_list *cmd_list, uint32_t indices, uint32_t instances, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::dispatch, api::command_list *cmd_list, uint32_t num_groups_x, uint32_t num_groups_y, uint32_t num_groups_z);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::draw_or_dispatch_indirect, api::command_list *cmd_list, uint32_t type, api::resource buffer, uint64_t offset, uint32_t draw_count, uint32_t stride);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::draw_or_dispatch_indirect, api::command_list *cmd_list, api::indirect_command type, api::resource buffer, uint64_t offset, uint32_t draw_count, uint32_t stride);
 
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::begin_render_pass, api::command_list *cmd_list, uint32_t count, const api::resource_view *rtvs, api::resource_view dsv);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::end_render_pass, api::command_list *cmd_list);
-
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::blit, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6], api::texture_filter filter);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::resolve, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_offset[3], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], const uint32_t size[3], api::format format);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_resource, api::command_list *cmd_list, api::resource src, api::resource dst);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_buffer_region, api::command_list *cmd_list, api::resource src, uint64_t src_offset, api::resource dst, uint64_t dst_offset, uint64_t size);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_buffer_to_texture, api::command_list *cmd_list, api::resource src, uint64_t src_offset, uint32_t row_length, uint32_t slice_height, api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6]);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_texture_region, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_offset[3], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], const uint32_t size[3]);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_texture_region, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_box[6], api::filter_type filter);
 	DEFINE_ADDON_EVENT_TYPE_2(addon_event::copy_texture_to_buffer, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint64_t dst_offset, uint32_t row_length, uint32_t slice_height);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::resolve_texture_region, api::command_list *cmd_list, api::resource src, uint32_t src_subresource, const int32_t src_box[6], api::resource dst, uint32_t dst_subresource, const int32_t dst_offset[3], api::format format);
 
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_depth_stencil_view, api::command_list *cmd_list, api::resource_view dsv, uint32_t clear_flags, float depth, uint8_t stencil);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_render_target_views, api::command_list *cmd_list, uint32_t count, const api::resource_view *rtvs, const float color[4]);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_unordered_access_view_uint, api::command_list *cmd_list, api::resource_view uav, const uint32_t values[4]);
-	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_unordered_access_view_float, api::command_list *cmd_list, api::resource_view uav, const float values[4]);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_attachments, api::command_list *cmd_list, api::attachment_type clear_flags, const float color[4], float depth, uint8_t stencil, uint32_t num_rects, const int32_t *rects);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_depth_stencil_view, api::command_list *cmd_list, api::resource_view dsv, api::attachment_type clear_flags, float depth, uint8_t stencil, uint32_t num_rects, const int32_t *rects);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_render_target_view, api::command_list *cmd_list, api::resource_view rtv, const float color[4], uint32_t num_rects, const int32_t *rects);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_unordered_access_view_uint, api::command_list *cmd_list, api::resource_view uav, const uint32_t values[4], uint32_t num_rects, const int32_t *rects);
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::clear_unordered_access_view_float, api::command_list *cmd_list, api::resource_view uav, const float values[4], uint32_t num_rects, const int32_t *rects);
+
+	DEFINE_ADDON_EVENT_TYPE_2(addon_event::generate_mipmaps, api::command_list *cmd_list, api::resource_view srv);
 
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::reset_command_list, api::command_list *cmd_list);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::execute_command_list, api::command_queue *queue, api::command_list *cmd_list);
 	DEFINE_ADDON_EVENT_TYPE_1(addon_event::execute_secondary_command_list, api::command_list *cmd_list, api::command_list *secondary_cmd_list);
 
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::resize, api::effect_runtime *runtime, uint32_t width, uint32_t height);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::present, api::command_queue *present_queue, api::effect_runtime *runtime);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::resize, api::swapchain *swapchain, uint32_t width, uint32_t height);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::present, api::command_queue *queue, api::swapchain *swapchain);
 
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::reshade_after_effects, api::effect_runtime *runtime, api::command_list *cmd_list);
-	DEFINE_ADDON_EVENT_TYPE_1(addon_event::reshade_before_effects, api::effect_runtime *runtime, api::command_list *cmd_list);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::reshade_begin_effects, api::effect_runtime *runtime, api::command_list *cmd_list);
+	DEFINE_ADDON_EVENT_TYPE_1(addon_event::reshade_finish_effects, api::effect_runtime *runtime, api::command_list *cmd_list);
 
 #undef DEFINE_ADDON_EVENT_TYPE_1
 #undef DEFINE_ADDON_EVENT_TYPE_2
-#undef DEFINE_ADDON_EVENT_TYPE_3
 }

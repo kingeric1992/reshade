@@ -5,8 +5,8 @@
 
 #include "dll_log.hpp"
 #include "hook_manager.hpp"
-#include "vulkan_hooks.hpp"
 #include "lockfree_table.hpp"
+#include "vulkan_hooks.hpp"
 
 lockfree_table<void *, VkLayerInstanceDispatchTable, 16> g_instance_dispatch;
 lockfree_table<VkSurfaceKHR, HWND, 16> g_surface_windows;
@@ -60,7 +60,10 @@ VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, co
 	for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; ++i)
 		LOG(INFO) << "  " << pCreateInfo->ppEnabledExtensionNames[i];
 
-	auto enum_instance_extensions = reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(get_instance_proc(nullptr, "vkEnumerateInstanceExtensionProperties"));
+	// 'vkEnumerateInstanceExtensionProperties' is not included in the next 'vkGetInstanceProcAddr' from the call chain, so use global one instead (this may only be called without an instance though)
+	auto get_instance_proc_global = reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(GetModuleHandleW(L"vulkan-1.dll"), "vkGetInstanceProcAddr"));
+	assert(get_instance_proc_global != nullptr);
+	auto enum_instance_extensions = reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(get_instance_proc_global(nullptr, "vkEnumerateInstanceExtensionProperties"));
 	assert(enum_instance_extensions != nullptr);
 
 	std::vector<const char *> enabled_extensions;
@@ -97,9 +100,7 @@ VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, co
 		};
 
 		// Enable extensions that ReShade requires
-#ifndef NDEBUG
 		add_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false);
-#endif
 	}
 
 	VkApplicationInfo app_info { VK_STRUCTURE_TYPE_APPLICATION_INFO };

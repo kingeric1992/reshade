@@ -8,9 +8,8 @@
 #define g_reshade_module_handle g_module_handle
 
 #include "dll_log.hpp"
-#include "dll_config.hpp"
+#include "ini_file.hpp"
 #include "reshade.hpp"
-#include "reshade_api_format_utils.hpp"
 #include "addon_manager.hpp"
 #include <vector>
 #include <unordered_map>
@@ -162,7 +161,7 @@ struct state_tracking_context
 
 		if (device->get_api() == device_api::d3d9)
 			desc.texture.format = format::r32_float; // D3DFMT_R32F, size INTZ does not support D3DUSAGE_RENDERTARGET which is required for copying
-		else
+		else if (device->get_api() != device_api::vulkan) // Use depth format as-is in Vulkan, since those are valid for shader resource views there
 			desc.texture.format = format_to_typeless(desc.texture.format);
 
 		if (!device->create_resource(desc, nullptr, resource_usage::copy_dest, &backup_texture))
@@ -201,7 +200,8 @@ static void clear_depth_impl(command_list *cmd_list, state_tracking &state, cons
 	// Make a backup copy of the depth texture before it is cleared
 	if (device_state.force_clear_index == 0 ?
 		// If clear index override is set to zero, always copy any suitable buffers
-		fullscreen_draw_call || counters.current_stats.vertices > state.best_copy_stats.vertices :
+		// Use greater equals operator here to handle case where the same scene is first rendered into a shadow map and then for real (e.g. Mirror's Edge)
+		fullscreen_draw_call || counters.current_stats.vertices >= state.best_copy_stats.vertices :
 		// This is not really correct, since clears may accumulate over multiple command lists, but it's unlikely that the same depth-stencil is used in more than one
 		counters.clears.size() == device_state.force_clear_index)
 	{
@@ -210,9 +210,9 @@ static void clear_depth_impl(command_list *cmd_list, state_tracking &state, cons
 			state.best_copy_stats = counters.current_stats;
 
 		// A resource has to be in this state for a clear operation, so can assume it here
-		cmd_list->insert_barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
+		cmd_list->barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
 		cmd_list->copy_resource(depth_stencil, device_state.backup_texture);
-		cmd_list->insert_barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
+		cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
 
 		counters.copied_during_frame = true;
 	}
@@ -223,7 +223,7 @@ static void clear_depth_impl(command_list *cmd_list, state_tracking &state, cons
 
 static void on_init_device(device *device)
 {
-	state_tracking_context &device_state = device->create_data<state_tracking_context>(state_tracking_context::GUID);
+	state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	const reshade::ini_file &config = reshade::global_config();
 	config.get("DEPTH", "DisableINTZ", s_disable_intz);
@@ -236,87 +236,83 @@ static void on_init_device(device *device)
 }
 static void on_destroy_device(device *device)
 {
-	state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	if (device_state.backup_texture != 0)
 		device->destroy_resource(device_state.backup_texture);
 	if (device_state.selected_shader_resource != 0)
 		device->destroy_resource_view(device_state.selected_shader_resource);
 
-	device->destroy_data<state_tracking_context>(state_tracking_context::GUID);
-}
-static void on_init_queue_or_command_list(api_object *queue_or_cmd_list)
-{
-	queue_or_cmd_list->create_data<state_tracking>(state_tracking::GUID);
+	device->destroy_user_data<state_tracking_context>(state_tracking_context::GUID);
 }
 static void on_destroy_queue_or_command_list(api_object *queue_or_cmd_list)
 {
-	queue_or_cmd_list->destroy_data<state_tracking>(state_tracking::GUID);
+	queue_or_cmd_list->destroy_user_data<state_tracking>(state_tracking::GUID);
 }
 
-static bool on_create_resource(
-	reshade::addon_event_trampoline<reshade::addon_event::create_resource> &call_next, device *device, const resource_desc &desc, const reshade::api::subresource_data *initial_data, resource_usage initial_state)
+static bool on_create_resource(device *device, const resource_desc &desc, const reshade::api::subresource_data *initial_data, resource_usage initial_state, resource *out)
 {
+	if (device->get_api() == device_api::d3d12)
+		return false; // No need to modify resources in D3D12, since backup texture is used always
+	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
+		return false; // Skip resources that are not 2D textures
+	if (desc.texture.samples != 1)
+		return false; // Skip MSAA textures
+
+	// Allow shader access to images that are used as depth-stencil attachments
+	if ((desc.usage & resource_usage::depth_stencil) == resource_usage::undefined ||
+		(desc.usage & resource_usage::shader_resource) != resource_usage::undefined)
+		return false;
+
 	resource_desc new_desc = desc;
+	if (device->get_api() == device_api::d3d9 && !s_disable_intz)
+		new_desc.texture.format = format::intz;
+	if (device->get_api() >= device_api::d3d10 && device->get_api() <= device_api::d3d12)
+		new_desc.texture.format = format_to_typeless(desc.texture.format);
 
-	// No need to modify resources in D3D12, since backup texture is used always
-	if ((device->get_api() != device_api::d3d12) && (
-		// Skip MSAA textures and resources that are not 2D textures
-		(desc.type == resource_type::surface || desc.type == resource_type::texture_2d) && desc.texture.samples == 1) && (
-		// Allow shader access to images that are used as depth-stencil attachments
-		(desc.usage & resource_usage::depth_stencil) != resource_usage::undefined &&
-		(desc.usage & resource_usage::shader_resource) == resource_usage::undefined))
-	{
-		if (device->get_api() == device_api::d3d9 && !s_disable_intz)
-			new_desc.texture.format = format::intz;
-		if (device->get_api() >= device_api::d3d10 && device->get_api() <= device_api::d3d12)
-			new_desc.texture.format = format_to_typeless(desc.texture.format);
+	new_desc.usage |= resource_usage::shader_resource;
 
-		new_desc.usage |= resource_usage::shader_resource;
-	}
-
-	return call_next(device, new_desc, initial_data, initial_state);
+	return device->create_resource(new_desc, initial_data, initial_state, out);
 }
-static bool on_create_resource_view(
-	reshade::addon_event_trampoline<reshade::addon_event::create_resource_view> &call_next, device *device, resource resource, resource_usage usage_type, const resource_view_desc &desc)
+static bool on_create_resource_view(device *device, resource resource, resource_usage usage_type, const resource_view_desc &desc, resource_view *out)
 {
+	// A view cannot be created with a typeless format (which was set in 'on_create_resource' above), so fix it in case defaults are used
+	if ((device->get_api() != device_api::d3d10 && device->get_api() != device_api::d3d11) || desc.format != format::unknown)
+		return false;
+
+	const resource_desc texture_desc = device->get_resource_desc(resource);
+	// Only non-MSAA textures where modified, so skip all others
+	if (texture_desc.texture.samples != 1 || (texture_desc.usage & resource_usage::depth_stencil) == resource_usage::undefined)
+		return false;
+
 	resource_view_desc new_desc = desc;
 
-	// A view cannot be created with a typeless format (which was set in 'on_create_resource' above), so fix it in case defaults are used
-	if (desc.format == format::unknown && (device->get_api() >= device_api::d3d10 && device->get_api() <= device_api::d3d11))
+	switch (usage_type)
 	{
-		const resource_desc texture_desc = device->get_resource_desc(resource);
-		// Only non-MSAA textures where modified, so skip all others
-		if (texture_desc.texture.samples == 1 && (texture_desc.usage & resource_usage::depth_stencil) != resource_usage::undefined)
-		{
-			switch (usage_type)
-			{
-			case resource_usage::depth_stencil:
-				new_desc.format = format_to_depth_stencil_typed(texture_desc.texture.format);
-				break;
-			case resource_usage::shader_resource:
-				new_desc.format = format_to_default_typed(texture_desc.texture.format);
-				break;
-			}
-
-			// Only need to set the rest of the fields if the application did not pass in a valid description already
-			if (desc.type == resource_view_type::unknown)
-			{
-				new_desc.type = texture_desc.texture.depth_or_layers > 1 ? resource_view_type::texture_2d_array : resource_view_type::texture_2d;
-				new_desc.texture.first_level = 0;
-				new_desc.texture.levels = (usage_type == resource_usage::shader_resource) ? 0xFFFFFFFF : 1;
-				new_desc.texture.first_layer = 0;
-				new_desc.texture.layers = (usage_type == resource_usage::shader_resource) ? 0xFFFFFFFF : 1;
-			}
-		}
+	case resource_usage::depth_stencil:
+		new_desc.format = format_to_depth_stencil_typed(texture_desc.texture.format);
+		break;
+	case resource_usage::shader_resource:
+		new_desc.format = format_to_default_typed(texture_desc.texture.format);
+		break;
 	}
 
-	return call_next(device, resource, usage_type, new_desc);
+	// Only need to set the rest of the fields if the application did not pass in a valid description already
+	if (desc.type == resource_view_type::unknown)
+	{
+		new_desc.type = texture_desc.texture.depth_or_layers > 1 ? resource_view_type::texture_2d_array : resource_view_type::texture_2d;
+		new_desc.texture.first_level = 0;
+		new_desc.texture.levels = (usage_type == resource_usage::shader_resource) ? 0xFFFFFFFF : 1;
+		new_desc.texture.first_layer = 0;
+		new_desc.texture.layers = (usage_type == resource_usage::shader_resource) ? 0xFFFFFFFF : 1;
+	}
+
+	return device->create_resource_view(resource, usage_type, new_desc, out);
 }
 
 static bool on_draw(command_list *cmd_list, uint32_t vertices, uint32_t instances, uint32_t, uint32_t)
 {
-	auto &state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
+	auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 	if (state.current_depth_stencil == 0)
 		return false; // This is a draw call with no depth-stencil bound
 
@@ -346,58 +342,78 @@ static bool on_draw_indexed(command_list *cmd_list, uint32_t indices, uint32_t i
 
 	return false;
 }
-static bool on_draw_indirect(command_list *cmd_list, uint32_t type, resource, uint64_t, uint32_t draw_count, uint32_t)
+static bool on_draw_indirect(command_list *cmd_list, indirect_command type, resource, uint64_t, uint32_t draw_count, uint32_t)
 {
-	if (type != 3)
+	if (type != indirect_command::dispatch)
 	{
 		for (uint32_t i = 0; i < draw_count; ++i)
 			on_draw(cmd_list, 0, 0, 0, 0);
 
-		auto &state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
+		auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 		state.has_indirect_drawcalls = true;
 	}
 
 	return false;
 }
+
 static void on_bind_viewport(command_list *cmd_list, uint32_t first, uint32_t count, const float *viewport)
 {
 	if (first != 0 || count == 0)
 		return; // Only interested in the main viewport
 
-	auto &state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
+	auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 	std::memcpy(state.current_viewport, viewport, 6 * sizeof(float));
 }
-static void on_bind_depth_stencil(command_list *cmd_list, uint32_t, const resource_view *, resource_view dsv)
+static void on_bind_depth_stencil(command_list *cmd_list, render_pass pass)
 {
 	device *const device = cmd_list->get_device();
-	auto &state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
+	auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 
 	resource depth_stencil = { 0 };
-	if (dsv != 0)
+	resource_view depth_stencil_view = { 0 };
+	if (device->get_attachment(pass, attachment_type::depth, 0, &depth_stencil_view))
 	{
-		device->get_resource_from_view(dsv, &depth_stencil);
+		device->get_resource_from_view(depth_stencil_view, &depth_stencil);
 	}
 
 	// Make a backup of the depth texture before it is used differently, since in D3D12 or Vulkan the underlying memory may be aliased to a different resource, so cannot just access it at the end of the frame
 	if (depth_stencil != state.current_depth_stencil && state.current_depth_stencil != 0 && (device->get_api() == device_api::d3d12 || device->get_api() == device_api::vulkan))
 	{
-		clear_depth_impl(cmd_list, state, device->get_data<state_tracking_context>(state_tracking_context::GUID), state.current_depth_stencil, true);
+		clear_depth_impl(cmd_list, state, device->get_user_data<state_tracking_context>(state_tracking_context::GUID), state.current_depth_stencil, true);
 	}
 
 	state.current_depth_stencil = depth_stencil;
 }
-static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, uint32_t clear_flags, float, uint8_t)
+static bool on_clear_depth_stencil_attachment(command_list *cmd_list, attachment_type flags, const float[4], float, uint8_t, uint32_t, const int32_t *)
 {
 	device *const device = cmd_list->get_device();
-	const state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	const state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	// Ignore clears that do not affect the depth buffer (stencil clears)
-	if ((clear_flags & 0x1) != 0 && device_state.preserve_depth_buffers)
+	// Also cannot preserve depth buffers here in Vulkan, since it is not valid to issue copy commands inside a render pass (and since this event is being called from 'vkCmdClearAttachments' always is inside one)
+	if ((flags & attachment_type::depth) == attachment_type::depth && device_state.preserve_depth_buffers && device->get_api() != device_api::vulkan)
 	{
+		auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
+
+		clear_depth_impl(cmd_list, state, device_state, state.current_depth_stencil, false);
+	}
+
+	return false;
+}
+static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, attachment_type flags, float, uint8_t, uint32_t, const int32_t *)
+{
+	device *const device = cmd_list->get_device();
+	const state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
+
+	// Ignore clears that do not affect the depth buffer (stencil clears)
+	if ((flags & attachment_type::depth) == attachment_type::depth && device_state.preserve_depth_buffers)
+	{
+		auto &state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
+
 		resource depth_stencil = { 0 };
 		device->get_resource_from_view(dsv, &depth_stencil);
 
-		clear_depth_impl(cmd_list, cmd_list->get_data<state_tracking>(state_tracking::GUID), device_state, depth_stencil, false);
+		clear_depth_impl(cmd_list, state, device_state, depth_stencil, false);
 	}
 
 	return false;
@@ -405,22 +421,23 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, ui
 
 static void on_reset(command_list *cmd_list)
 {
-	auto &target_state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
+	auto &target_state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 	target_state.reset();
 }
 static void on_execute(api_object *queue_or_cmd_list, command_list *cmd_list)
 {
-	auto &source_state = cmd_list->get_data<state_tracking>(state_tracking::GUID);
-	auto &target_state = queue_or_cmd_list->get_data<state_tracking>(state_tracking::GUID);
+	auto &source_state = cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
+	auto &target_state = queue_or_cmd_list->get_user_data<state_tracking>(state_tracking::GUID);
 	target_state.merge(source_state);
 }
 
-static void on_present(command_queue *, effect_runtime *runtime)
+static void on_present(command_queue *, swapchain *swapchain)
 {
+	effect_runtime *const runtime = swapchain->get_effect_runtime();
 	device *const device = runtime->get_device();
 	command_queue *const queue = runtime->get_command_queue();
-	state_tracking &queue_state = queue->get_data<state_tracking>(state_tracking::GUID);
-	state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	state_tracking &queue_state = queue->get_user_data<state_tracking>(state_tracking::GUID);
+	state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 #if RESHADE_GUI
 	device_state.current_depth_stencil_list.clear();
@@ -437,7 +454,7 @@ static void on_present(command_queue *, effect_runtime *runtime)
 	for (const auto &[depth_stencil_handle, snapshot] : queue_state.counters_per_used_depth_stencil)
 	{
 		resource const resource = { depth_stencil_handle };
-		if (!device->check_resource_handle_valid(resource))
+		if (!device->is_resource_handle_valid(resource))
 			continue; // Skip resources that were destroyed by the application
 
 #if RESHADE_GUI
@@ -468,7 +485,7 @@ static void on_present(command_queue *, effect_runtime *runtime)
 	}
 
 	if (device_state.override_depth_stencil != 0 &&
-		device->check_resource_handle_valid(device_state.override_depth_stencil))
+		device->is_resource_handle_valid(device_state.override_depth_stencil))
 	{
 		best_desc = device->get_resource_desc(device_state.override_depth_stencil);
 		best_match = device_state.override_depth_stencil;
@@ -490,7 +507,7 @@ static void on_present(command_queue *, effect_runtime *runtime)
 			device_state.selected_shader_resource = { 0 };
 
 			// Create two-dimensional resource view to the first level and layer of the depth-stencil resource
-			resource_view_desc srv_desc(format_to_default_typed(best_desc.texture.format), 0, 1, 0, 1);
+			resource_view_desc srv_desc(device->get_api() != device_api::vulkan ? format_to_default_typed(best_desc.texture.format) : best_desc.texture.format);
 
 			// Need to create backup texture only if doing backup copies or original resource does not support shader access (which is necessary for binding it to effects)
 			// Also always create a backup texture in D3D12 or Vulkan to circument problems in case application makes use of resource aliasing
@@ -534,9 +551,9 @@ static void on_present(command_queue *, effect_runtime *runtime)
 			{
 				command_list *const cmd_list = queue->get_immediate_command_list();
 
-				cmd_list->insert_barrier(best_match, resource_usage::depth_stencil | resource_usage::shader_resource, resource_usage::copy_source);
+				cmd_list->barrier(best_match, resource_usage::depth_stencil | resource_usage::shader_resource, resource_usage::copy_source);
 				cmd_list->copy_resource(best_match, device_state.backup_texture);
-				cmd_list->insert_barrier(best_match, resource_usage::copy_source, resource_usage::depth_stencil | resource_usage::shader_resource);
+				cmd_list->barrier(best_match, resource_usage::copy_source, resource_usage::depth_stencil | resource_usage::shader_resource);
 			}
 		}
 
@@ -569,7 +586,7 @@ static void on_present(command_queue *, effect_runtime *runtime)
 static void on_init_effect_runtime(effect_runtime *runtime)
 {
 	device *const device = runtime->get_device();
-	const state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	const state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	// Need to set texture binding again after a runtime was reset
 	runtime->update_texture_bindings("DEPTH", device_state.selected_shader_resource);
@@ -577,10 +594,10 @@ static void on_init_effect_runtime(effect_runtime *runtime)
 	const bool bufready_depth_value = device_state.selected_shader_resource != 0;
 	runtime->update_uniform_variables("bufready_depth", &bufready_depth_value, 1);
 }
-static void on_before_render_effects(effect_runtime *runtime, command_list *cmd_list)
+static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_list)
 {
 	device *const device = runtime->get_device();
-	const state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	const state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	if (device_state.selected_shader_resource != 0)
 	{
@@ -589,18 +606,18 @@ static void on_before_render_effects(effect_runtime *runtime, command_list *cmd_
 
 		if (resource == device_state.backup_texture)
 		{
-			cmd_list->insert_barrier(resource, resource_usage::copy_dest, resource_usage::shader_resource);
+			cmd_list->barrier(resource, resource_usage::copy_dest, resource_usage::shader_resource);
 		}
 		else
 		{
-			cmd_list->insert_barrier(resource, resource_usage::depth_stencil | resource_usage::shader_resource, resource_usage::shader_resource);
+			cmd_list->barrier(resource, resource_usage::depth_stencil | resource_usage::shader_resource, resource_usage::shader_resource);
 		}
 	}
 }
-static void on_after_render_effects(effect_runtime *runtime, command_list *cmd_list)
+static void on_finish_render_effects(effect_runtime *runtime, command_list *cmd_list)
 {
 	device *const device = runtime->get_device();
-	const state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	const state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	if (device_state.selected_shader_resource != 0)
 	{
@@ -609,11 +626,11 @@ static void on_after_render_effects(effect_runtime *runtime, command_list *cmd_l
 
 		if (resource == device_state.backup_texture)
 		{
-			cmd_list->insert_barrier(resource, resource_usage::shader_resource, resource_usage::copy_dest);
+			cmd_list->barrier(resource, resource_usage::shader_resource, resource_usage::copy_dest);
 		}
 		else
 		{
-			cmd_list->insert_barrier(resource, resource_usage::shader_resource, resource_usage::depth_stencil | resource_usage::shader_resource);
+			cmd_list->barrier(resource, resource_usage::shader_resource, resource_usage::depth_stencil | resource_usage::shader_resource);
 		}
 	}
 }
@@ -622,7 +639,7 @@ static void on_after_render_effects(effect_runtime *runtime, command_list *cmd_l
 static void draw_debug_menu(effect_runtime *runtime, void *)
 {
 	device *const device = runtime->get_device();
-	state_tracking_context &device_state = device->get_data<state_tracking_context>(state_tracking_context::GUID);
+	state_tracking_context &device_state = device->get_user_data<state_tracking_context>(state_tracking_context::GUID);
 
 	bool modified = false;
 	if (device->get_api() == device_api::d3d9)
@@ -655,7 +672,7 @@ static void draw_debug_menu(effect_runtime *runtime, void *)
 
 	for (const auto &[resource, snapshot] : device_state.current_depth_stencil_list)
 	{
-		if (!device->check_resource_handle_valid(resource))
+		if (!device->is_resource_handle_valid(resource))
 			continue;
 
 		if (auto it = device_state.display_count_per_depth_stencil.find(resource.handle);
@@ -760,9 +777,7 @@ void register_builtin_addon_depth(reshade::addon::info &info)
 
 	reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 	reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
-	reshade::register_event<reshade::addon_event::init_command_list>(reinterpret_cast<void(*)(command_list *)>(on_init_queue_or_command_list));
 	reshade::register_event<reshade::addon_event::destroy_command_list>(reinterpret_cast<void(*)(command_list *)>(on_destroy_queue_or_command_list));
-	reshade::register_event<reshade::addon_event::init_command_queue>(reinterpret_cast<void(*)(command_queue *)>(on_init_queue_or_command_list));
 	reshade::register_event<reshade::addon_event::destroy_command_queue>(reinterpret_cast<void(*)(command_queue *)>(on_destroy_queue_or_command_list));
 	reshade::register_event<reshade::addon_event::init_effect_runtime>(on_init_effect_runtime);
 
@@ -774,6 +789,7 @@ void register_builtin_addon_depth(reshade::addon::info &info)
 	reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_indirect);
 	reshade::register_event<reshade::addon_event::bind_viewports>(on_bind_viewport);
 	reshade::register_event<reshade::addon_event::begin_render_pass>(on_bind_depth_stencil);
+	reshade::register_event<reshade::addon_event::clear_attachments>(on_clear_depth_stencil_attachment);
 	reshade::register_event<reshade::addon_event::clear_depth_stencil_view>(on_clear_depth_stencil);
 
 	reshade::register_event<reshade::addon_event::reset_command_list>(on_reset);
@@ -782,8 +798,8 @@ void register_builtin_addon_depth(reshade::addon::info &info)
 
 	reshade::register_event<reshade::addon_event::present>(on_present);
 
-	reshade::register_event<reshade::addon_event::reshade_before_effects>(on_before_render_effects);
-	reshade::register_event<reshade::addon_event::reshade_after_effects>(on_after_render_effects);
+	reshade::register_event<reshade::addon_event::reshade_begin_effects>(on_begin_render_effects);
+	reshade::register_event<reshade::addon_event::reshade_finish_effects>(on_finish_render_effects);
 }
 void unregister_builtin_addon_depth()
 {
@@ -793,9 +809,7 @@ void unregister_builtin_addon_depth()
 
 	reshade::unregister_event<reshade::addon_event::init_device>(on_init_device);
 	reshade::unregister_event<reshade::addon_event::destroy_device>(on_destroy_device);
-	reshade::unregister_event<reshade::addon_event::init_command_list>(reinterpret_cast<void(*)(command_list *)>(on_init_queue_or_command_list));
 	reshade::unregister_event<reshade::addon_event::destroy_command_list>(reinterpret_cast<void(*)(command_list *)>(on_destroy_queue_or_command_list));
-	reshade::unregister_event<reshade::addon_event::init_command_queue>(reinterpret_cast<void(*)(command_queue *)>(on_init_queue_or_command_list));
 	reshade::unregister_event<reshade::addon_event::destroy_command_queue>(reinterpret_cast<void(*)(command_queue *)>(on_destroy_queue_or_command_list));
 	reshade::unregister_event<reshade::addon_event::init_effect_runtime>(on_init_effect_runtime);
 
@@ -807,6 +821,7 @@ void unregister_builtin_addon_depth()
 	reshade::unregister_event<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_indirect);
 	reshade::unregister_event<reshade::addon_event::bind_viewports>(on_bind_viewport);
 	reshade::unregister_event<reshade::addon_event::begin_render_pass>(on_bind_depth_stencil);
+	reshade::unregister_event<reshade::addon_event::clear_attachments>(on_clear_depth_stencil_attachment);
 	reshade::unregister_event<reshade::addon_event::clear_depth_stencil_view>(on_clear_depth_stencil);
 
 	reshade::unregister_event<reshade::addon_event::reset_command_list>(on_reset);
@@ -815,8 +830,8 @@ void unregister_builtin_addon_depth()
 
 	reshade::unregister_event<reshade::addon_event::present>(on_present);
 
-	reshade::unregister_event<reshade::addon_event::reshade_before_effects>(on_before_render_effects);
-	reshade::unregister_event<reshade::addon_event::reshade_after_effects>(on_after_render_effects);
+	reshade::unregister_event<reshade::addon_event::reshade_begin_effects>(on_begin_render_effects);
+	reshade::unregister_event<reshade::addon_event::reshade_finish_effects>(on_finish_render_effects);
 }
 
 #endif

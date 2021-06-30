@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 namespace reshade::api
@@ -13,12 +14,13 @@ namespace reshade::api
 	class api_object_impl : public api_object_base...
 	{
 	public:
-		explicit api_object_impl(T orig) : _orig(orig) {}
+		template <typename... Args>
+		explicit api_object_impl(T orig, Args... args) : api_object_base(std::forward<Args>(args)...)..., _orig(orig) {}
 
 		api_object_impl(const api_object_impl &) = delete;
 		api_object_impl &operator=(const api_object_impl &) = delete;
 
-		bool get_data(const uint8_t guid[16], void **ptr) const override
+		bool get_user_data(const uint8_t guid[16], void **ptr) const override
 		{
 			for (auto it = _data_entries.begin(); it != _data_entries.end(); ++it)
 			{
@@ -31,7 +33,7 @@ namespace reshade::api
 			}
 			return false;
 		}
-		void set_data(const uint8_t guid[16], void * const ptr) override
+		void set_user_data(const uint8_t guid[16], void * const ptr) override
 		{
 			for (auto it = _data_entries.begin(); it != _data_entries.end(); ++it)
 			{

@@ -385,41 +385,44 @@
     <ClCompile Include="source\d2d1\d2d1.cpp" />
     <ClCompile Include="source\d3d10\d3d10.cpp" />
     <ClCompile Include="source\d3d10\d3d10_device.cpp" />
-    <ClCompile Include="source\d3d10\render_d3d10.cpp" />
-    <ClCompile Include="source\d3d10\render_d3d10_utils.cpp" />
-    <ClCompile Include="source\d3d10\runtime_d3d10.cpp" />
-    <ClCompile Include="source\d3d10\runtime_d3d10_gui.cpp" />
-    <ClCompile Include="source\d3d10\state_block_d3d10.cpp" />
+    <ClCompile Include="source\d3d10\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\d3d10\reshade_api_command_queue.cpp" />
+    <ClCompile Include="source\d3d10\reshade_api_device.cpp" />
+    <ClCompile Include="source\d3d10\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\d3d10\reshade_api_type_convert.cpp" />
+    <ClCompile Include="source\d3d10\state_block.cpp" />
     <ClCompile Include="source\d3d11\d3d11.cpp" />
     <ClCompile Include="source\d3d11\d3d11_command_list.cpp" />
     <ClCompile Include="source\d3d11\d3d11_device.cpp" />
     <ClCompile Include="source\d3d11\d3d11_device_context.cpp" />
-    <ClCompile Include="source\d3d11\render_d3d11.cpp" />
-    <ClCompile Include="source\d3d11\render_d3d11_utils.cpp" />
-    <ClCompile Include="source\d3d11\runtime_d3d11.cpp" />
-    <ClCompile Include="source\d3d11\runtime_d3d11_gui.cpp" />
-    <ClCompile Include="source\d3d11\state_block_d3d11.cpp" />
+    <ClCompile Include="source\d3d11\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\d3d11\reshade_api_command_queue.cpp" />
+    <ClCompile Include="source\d3d11\reshade_api_device.cpp" />
+    <ClCompile Include="source\d3d11\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\d3d11\reshade_api_type_convert.cpp" />
+    <ClCompile Include="source\d3d11\state_block.cpp" />
     <ClCompile Include="source\d3d12\d3d12.cpp" />
     <ClCompile Include="source\d3d12\d3d12_command_list.cpp" />
     <ClCompile Include="source\d3d12\d3d12_command_queue.cpp" />
     <ClCompile Include="source\d3d12\d3d12_command_queue_downlevel.cpp" />
     <ClCompile Include="source\d3d12\d3d12_device.cpp" />
     <ClCompile Include="source\d3d12\d3d12_device_downlevel.cpp" />
-    <ClCompile Include="source\d3d12\render_d3d12.cpp" />
-    <ClCompile Include="source\d3d12\render_d3d12_utils.cpp" />
-    <ClCompile Include="source\d3d12\runtime_d3d12.cpp" />
-    <ClCompile Include="source\d3d12\runtime_d3d12_gui.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_command_list_immediate.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_command_queue.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_device.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\d3d12\reshade_api_type_convert.cpp" />
     <ClCompile Include="source\d3d9\d3d9.cpp" />
     <ClCompile Include="source\d3d9\d3d9_device.cpp" />
     <ClCompile Include="source\d3d9\d3d9_internal.cpp" />
     <ClCompile Include="source\d3d9\d3d9_profiling.cpp" />
     <ClCompile Include="source\d3d9\d3d9_swapchain.cpp" />
-    <ClCompile Include="source\d3d9\render_d3d9.cpp" />
-    <ClCompile Include="source\d3d9\render_d3d9_utils.cpp" />
-    <ClCompile Include="source\d3d9\runtime_d3d9.cpp" />
-    <ClCompile Include="source\d3d9\runtime_d3d9_gui.cpp" />
-    <ClCompile Include="source\d3d9\state_block_d3d9.cpp" />
-    <ClCompile Include="source\dll_config.cpp" />
+    <ClCompile Include="source\d3d9\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\d3d9\reshade_api_device.cpp" />
+    <ClCompile Include="source\d3d9\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\d3d9\reshade_api_type_convert.cpp" />
+    <ClCompile Include="source\d3d9\state_block.cpp" />
     <ClCompile Include="source\dll_log.cpp" />
     <ClCompile Include="source\dll_main.cpp" />
     <ClCompile Include="source\dll_resources.cpp" />
@@ -432,28 +435,35 @@
     <ClCompile Include="source\imgui_code_editor.cpp" />
     <ClCompile Include="source\imgui_function_table.cpp" />
     <ClCompile Include="source\imgui_widgets.cpp" />
+    <ClCompile Include="source\ini_file.cpp" />
     <ClCompile Include="source\input.cpp" />
     <ClCompile Include="source\input_freepie.cpp" />
     <ClCompile Include="source\opengl\opengl_hooks.cpp" />
     <ClCompile Include="source\opengl\opengl_hooks_wgl.cpp" />
-    <ClCompile Include="source\opengl\render_gl.cpp" />
-    <ClCompile Include="source\opengl\render_gl_utils.cpp" />
-    <ClCompile Include="source\opengl\runtime_gl.cpp" />
-    <ClCompile Include="source\opengl\runtime_gl_gui.cpp" />
-    <ClCompile Include="source\opengl\state_block_gl.cpp" />
+    <ClCompile Include="source\opengl\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\opengl\reshade_api_command_queue.cpp" />
+    <ClCompile Include="source\opengl\reshade_api_device.cpp" />
+    <ClCompile Include="source\opengl\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\opengl\reshade_api_type_convert.cpp" />
+    <ClCompile Include="source\opengl\state_block.cpp" />
     <ClCompile Include="source\openvr\openvr.cpp" />
     <ClCompile Include="source\runtime.cpp" />
     <ClCompile Include="source\runtime_gui.cpp" />
+    <ClCompile Include="source\runtime_gui_vr.cpp" />
     <ClCompile Include="source\runtime_update_check.cpp" />
-    <ClCompile Include="source\vulkan\render_vk.cpp" />
-    <ClCompile Include="source\vulkan\render_vk_utils.cpp" />
-    <ClCompile Include="source\vulkan\runtime_vk.cpp">
+    <ClCompile Include="source\vulkan\reshade_api_command_list.cpp" />
+    <ClCompile Include="source\vulkan\reshade_api_command_list_immediate.cpp" />
+    <ClCompile Include="source\vulkan\reshade_api_command_queue.cpp" />
+    <ClCompile Include="source\vulkan\reshade_api_device.cpp">
       <PreprocessorDefinitions>VMA_IMPLEMENTATION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <ClCompile Include="source\vulkan\runtime_vk_gui.cpp" />
+    <ClCompile Include="source\vulkan\reshade_api_swapchain.cpp" />
+    <ClCompile Include="source\vulkan\reshade_api_type_convert.cpp" />
     <ClCompile Include="source\vulkan\vulkan_hooks.cpp" />
+    <ClCompile Include="source\vulkan\vulkan_hooks_cmd.cpp" />
     <ClCompile Include="source\vulkan\vulkan_hooks_device.cpp" />
     <ClCompile Include="source\vulkan\vulkan_hooks_instance.cpp" />
+    <ClCompile Include="source\windows\dinput8.cpp" />
     <ClCompile Include="source\windows\user32.cpp" />
     <ClCompile Include="source\windows\ws2_32.cpp" />
   </ItemGroup>
@@ -461,7 +471,6 @@
     <ClInclude Include="include\reshade.hpp" />
     <ClInclude Include="include\reshade_api.hpp" />
     <ClInclude Include="include\reshade_api_format.hpp" />
-    <ClInclude Include="include\reshade_api_format_utils.hpp" />
     <ClInclude Include="include\reshade_api_pipeline.hpp" />
     <ClInclude Include="include\reshade_api_resource.hpp" />
     <ClInclude Include="include\reshade_events.hpp" />
@@ -474,63 +483,63 @@
     <ClInclude Include="source\addon_manager.hpp" />
     <ClInclude Include="source\com_ptr.hpp" />
     <ClInclude Include="source\com_tracking.hpp" />
-    <ClInclude Include="source\dll_config.hpp" />
     <ClInclude Include="source\d3d10\d3d10_device.hpp" />
-    <ClInclude Include="source\d3d10\render_d3d10.hpp" />
-    <ClInclude Include="source\d3d10\render_d3d10_utils.hpp" />
-    <ClInclude Include="source\d3d10\runtime_d3d10.hpp" />
-    <ClInclude Include="source\d3d10\runtime_d3d10_objects.hpp" />
-    <ClInclude Include="source\d3d10\state_block_d3d10.hpp" />
+    <ClInclude Include="source\d3d10\reshade_api_device.hpp" />
+    <ClInclude Include="source\d3d10\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\d3d10\reshade_api_type_convert.hpp" />
+    <ClInclude Include="source\d3d10\state_block.hpp" />
     <ClInclude Include="source\d3d11\d3d11_command_list.hpp" />
     <ClInclude Include="source\d3d11\d3d11_device.hpp" />
     <ClInclude Include="source\d3d11\d3d11_device_context.hpp" />
-    <ClInclude Include="source\d3d11\render_d3d11.hpp" />
-    <ClInclude Include="source\d3d11\render_d3d11_utils.hpp" />
-    <ClInclude Include="source\d3d11\runtime_d3d11.hpp" />
-    <ClInclude Include="source\d3d11\runtime_d3d11_objects.hpp" />
-    <ClInclude Include="source\d3d11\state_block_d3d11.hpp" />
+    <ClInclude Include="source\d3d11\reshade_api_device.hpp" />
+    <ClInclude Include="source\d3d11\reshade_api_device_context.hpp" />
+    <ClInclude Include="source\d3d11\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\d3d11\reshade_api_type_convert.hpp" />
+    <ClInclude Include="source\d3d11\state_block.hpp" />
     <ClInclude Include="source\d3d12\d3d12_command_list.hpp" />
     <ClInclude Include="source\d3d12\d3d12_command_queue.hpp" />
     <ClInclude Include="source\d3d12\d3d12_command_queue_downlevel.hpp" />
     <ClInclude Include="source\d3d12\d3d12_device.hpp" />
     <ClInclude Include="source\d3d12\d3d12_device_downlevel.hpp" />
-    <ClInclude Include="source\d3d12\render_d3d12.hpp" />
-    <ClInclude Include="source\d3d12\render_d3d12_utils.hpp" />
-    <ClInclude Include="source\d3d12\runtime_d3d12.hpp" />
-    <ClInclude Include="source\d3d12\runtime_d3d12_objects.hpp" />
+    <ClInclude Include="source\d3d12\descriptor_heap.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_command_list.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_command_list_immediate.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_command_queue.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_device.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\d3d12\reshade_api_type_convert.hpp" />
     <ClInclude Include="source\d3d9\d3d9_device.hpp" />
     <ClInclude Include="source\d3d9\d3d9_swapchain.hpp" />
-    <ClInclude Include="source\d3d9\render_d3d9.hpp" />
-    <ClInclude Include="source\d3d9\render_d3d9_utils.hpp" />
-    <ClInclude Include="source\d3d9\runtime_d3d9.hpp" />
-    <ClInclude Include="source\d3d9\runtime_d3d9_objects.hpp" />
-    <ClInclude Include="source\d3d9\state_block_d3d9.hpp" />
+    <ClInclude Include="source\d3d9\reshade_api_device.hpp" />
+    <ClInclude Include="source\d3d9\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\d3d9\reshade_api_type_convert.hpp" />
+    <ClInclude Include="source\d3d9\state_block.hpp" />
     <ClInclude Include="source\dll_log.hpp" />
     <ClInclude Include="source\dll_resources.hpp" />
     <ClInclude Include="source\dxgi\dxgi_device.hpp" />
     <ClInclude Include="source\dxgi\dxgi_swapchain.hpp" />
-    <ClInclude Include="source\dxgi\format_utils.hpp" />
     <ClInclude Include="source\hook.hpp" />
     <ClInclude Include="source\hook_manager.hpp" />
     <ClInclude Include="source\imgui_code_editor.hpp" />
     <ClInclude Include="source\imgui_widgets.hpp" />
+    <ClInclude Include="source\ini_file.hpp" />
     <ClInclude Include="source\input.hpp" />
     <ClInclude Include="source\input_freepie.hpp" />
     <ClInclude Include="source\lockfree_table.hpp" />
     <ClInclude Include="source\opengl\opengl.hpp" />
     <ClInclude Include="source\opengl\opengl_hooks.hpp" />
-    <ClInclude Include="source\opengl\render_gl.hpp" />
-    <ClInclude Include="source\opengl\render_gl_utils.hpp" />
-    <ClInclude Include="source\opengl\runtime_gl.hpp" />
-    <ClInclude Include="source\opengl\runtime_gl_objects.hpp" />
-    <ClInclude Include="source\opengl\state_block_gl.hpp" />
+    <ClInclude Include="source\opengl\reshade_api_device.hpp" />
+    <ClInclude Include="source\opengl\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\opengl\reshade_api_type_convert.hpp" />
+    <ClInclude Include="source\opengl\state_block.hpp" />
     <ClInclude Include="source\runtime.hpp" />
     <ClInclude Include="source\runtime_objects.hpp" />
-    <ClInclude Include="source\vulkan\format_utils.hpp" />
-    <ClInclude Include="source\vulkan\render_vk.hpp" />
-    <ClInclude Include="source\vulkan\render_vk_utils.hpp" />
-    <ClInclude Include="source\vulkan\runtime_vk.hpp" />
-    <ClInclude Include="source\vulkan\runtime_vk_objects.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_command_list.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_command_list_immediate.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_command_queue.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_device.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_swapchain.hpp" />
+    <ClInclude Include="source\vulkan\reshade_api_type_convert.hpp" />
     <ClInclude Include="source\vulkan\vulkan_hooks.hpp" />
   </ItemGroup>
   <ItemGroup>
@@ -549,11 +558,21 @@
     <FxCompile Include="res\shaders\fullscreen_vs.hlsl">
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
-    <FxCompile Include="res\shaders\imgui_ps.hlsl">
+    <FxCompile Include="res\shaders\imgui_ps_3_0.hlsl">
       <ShaderType>Pixel</ShaderType>
+      <ShaderModel>3.0</ShaderModel>
     </FxCompile>
-    <FxCompile Include="res\shaders\imgui_vs.hlsl">
+    <FxCompile Include="res\shaders\imgui_ps_4_0.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>4.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="res\shaders\imgui_vs_3_0.hlsl">
       <ShaderType>Vertex</ShaderType>
+      <ShaderModel>3.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="res\shaders\imgui_vs_4_0.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>4.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="res\shaders\mipmap_cs.hlsl">
       <ShaderType>Compute</ShaderType>

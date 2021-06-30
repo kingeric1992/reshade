@@ -93,7 +93,10 @@ bool reshade::input::handle_window_message(const void *message_data)
 
 	// Remove any expired entry from the list
 	for (auto it = s_windows.begin(); it != s_windows.end();)
-		it->second.expired() ? it = s_windows.erase(it) : ++it;
+		if (it->second.expired())
+			it = s_windows.erase(it);
+		else
+			++it;
 
 	// Look up the window in the list of known input windows
 	auto input_window = s_windows.find(details.hwnd);
@@ -468,14 +471,19 @@ static inline bool is_blocking_keyboard_input()
 	return std::any_of(s_windows.cbegin(), s_windows.cend(), predicate);
 }
 
+// The "PeekMessage" functions may be called very frequently, so cache trampoline pointers
+// Use global variables for this instead of static variables inside the functions below to avoid the overhead of checking whether they have been initialized on every call
+static decltype(&PeekMessageA) s_trampoline_peek_message_a = nullptr;
+static decltype(&PeekMessageW) s_trampoline_peek_message_w = nullptr;
+
 HOOK_EXPORT BOOL WINAPI HookGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
 #if 1
 	// Implement 'GetMessage' with a timeout (see also DLL_PROCESS_DETACH in dllmain.cpp for more explanation)
 	while (!PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE) && g_module_handle != nullptr)
-		MsgWaitForMultipleObjects(0, nullptr, FALSE, 1000, QS_ALLINPUT);
+		MsgWaitForMultipleObjects(0, nullptr, FALSE, 500, QS_ALLINPUT);
 
-	if (g_module_handle == nullptr)
+	if (g_module_handle == nullptr && lpMsg->message != WM_QUIT)
 		std::memset(lpMsg, 0, sizeof(MSG)); // Clear message structure, so application does not process it
 #else
 	static const auto trampoline = reshade::hooks::call(HookGetMessageA);
@@ -501,9 +509,9 @@ HOOK_EXPORT BOOL WINAPI HookGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterM
 {
 #if 1
 	while (!PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE) && g_module_handle != nullptr)
-		MsgWaitForMultipleObjects(0, nullptr, FALSE, 1000, QS_ALLINPUT);
+		MsgWaitForMultipleObjects(0, nullptr, FALSE, 500, QS_ALLINPUT);
 
-	if (g_module_handle == nullptr)
+	if (g_module_handle == nullptr && lpMsg->message != WM_QUIT)
 		std::memset(lpMsg, 0, sizeof(MSG));
 #else
 	static const auto trampoline = reshade::hooks::call(HookGetMessageW);
@@ -527,8 +535,8 @@ HOOK_EXPORT BOOL WINAPI HookGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterM
 }
 HOOK_EXPORT BOOL WINAPI HookPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
-	static const auto trampoline = reshade::hooks::call(HookPeekMessageA);
-	if (!trampoline(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg))
+	assert(s_trampoline_peek_message_a != nullptr);
+	if (!s_trampoline_peek_message_a(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg))
 		return FALSE;
 
 	assert(lpMsg != nullptr);
@@ -546,8 +554,8 @@ HOOK_EXPORT BOOL WINAPI HookPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
 }
 HOOK_EXPORT BOOL WINAPI HookPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
-	static const auto trampoline = reshade::hooks::call(HookPeekMessageW);
-	if (!trampoline(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg))
+	assert(s_trampoline_peek_message_w != nullptr);
+	if (!s_trampoline_peek_message_w(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg))
 		return FALSE;
 
 	assert(lpMsg != nullptr);
@@ -562,6 +570,12 @@ HOOK_EXPORT BOOL WINAPI HookPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
 	}
 
 	return TRUE;
+}
+
+void init_message_queue_trampolines()
+{
+	s_trampoline_peek_message_a = reshade::hooks::call(HookPeekMessageA);
+	s_trampoline_peek_message_w = reshade::hooks::call(HookPeekMessageW);
 }
 
 HOOK_EXPORT BOOL WINAPI HookPostMessageA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)

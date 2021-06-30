@@ -6,7 +6,7 @@
 #if RESHADE_ADDON
 
 #include "dll_log.hpp"
-#include "dll_config.hpp"
+#include "ini_file.hpp"
 #include "addon_manager.hpp"
 #include <Windows.h>
 
@@ -35,12 +35,16 @@ static const char *addon_event_to_string(reshade::addon_event ev)
 		CASE(destroy_command_queue);
 		CASE(init_effect_runtime);
 		CASE(destroy_effect_runtime);
+		CASE(create_sampler);
 		CASE(create_resource);
 		CASE(create_resource_view);
 		CASE(create_pipeline);
-		CASE(create_shader_module);
 		CASE(upload_buffer_region);
 		CASE(upload_texture_region);
+		CASE(update_descriptor_sets);
+		CASE(barrier);
+		CASE(begin_render_pass);
+		CASE(finish_render_pass);
 		CASE(bind_pipeline);
 		CASE(bind_pipeline_states);
 		CASE(bind_viewports);
@@ -54,17 +58,16 @@ static const char *addon_event_to_string(reshade::addon_event ev)
 		CASE(draw_indexed);
 		CASE(dispatch);
 		CASE(draw_or_dispatch_indirect);
-		CASE(begin_render_pass);
-		CASE(end_render_pass);
-		CASE(blit);
-		CASE(resolve);
 		CASE(copy_resource);
 		CASE(copy_buffer_region);
 		CASE(copy_buffer_to_texture);
 		CASE(copy_texture_region);
 		CASE(copy_texture_to_buffer);
+		CASE(resolve_texture_region);
+		CASE(generate_mipmaps);
+		CASE(clear_attachments);
 		CASE(clear_depth_stencil_view);
-		CASE(clear_render_target_views);
+		CASE(clear_render_target_view);
 		CASE(clear_unordered_access_view_uint);
 		CASE(clear_unordered_access_view_float);
 		CASE(reset_command_list);
@@ -72,8 +75,8 @@ static const char *addon_event_to_string(reshade::addon_event ev)
 		CASE(execute_secondary_command_list);
 		CASE(resize);
 		CASE(present);
-		CASE(reshade_after_effects);
-		CASE(reshade_before_effects);
+		CASE(reshade_begin_effects);
+		CASE(reshade_finish_effects);
 	}
 #undef  CASE
 	return "unknown";
@@ -107,9 +110,13 @@ void reshade::addon::load_addons()
 
 		LOG(INFO) << "Loading add-on from " << path << " ...";
 
-		const HMODULE handle = LoadLibraryW(path.c_str());
+		// Use 'LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR' to temporarily add add-on search path to the list of directories "LoadLibraryEx" will use to resolve DLL dependencies
+		const HMODULE handle = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 		if (handle == nullptr)
+		{
+			LOG(WARN) << "Failed to load add-on from " << path << " with error code " << GetLastError() << '.';
 			continue;
+		}
 
 		reshade::addon::info info;
 		info.name = path.stem().u8string();
@@ -176,6 +183,11 @@ void reshade::addon::enable_or_disable_addons(bool enabled)
 
 extern "C" __declspec(dllexport) void ReShadeRegisterEvent(reshade::addon_event ev, void *callback)
 {
+	if (ev >= reshade::addon_event::max)
+		return;
+
+	assert(callback != nullptr);
+
 	auto &event_list = reshade::addon::event_list[static_cast<size_t>(ev)];
 	event_list.push_back(callback);
 
@@ -185,6 +197,11 @@ extern "C" __declspec(dllexport) void ReShadeRegisterEvent(reshade::addon_event 
 }
 extern "C" __declspec(dllexport) void ReShadeUnregisterEvent(reshade::addon_event ev, void *callback)
 {
+	if (ev >= reshade::addon_event::max)
+		return;
+
+	assert(callback != nullptr);
+
 	auto &event_list = reshade::addon::event_list[static_cast<size_t>(ev)];
 	event_list.erase(std::remove(event_list.begin(), event_list.end(), callback), event_list.end());
 
@@ -196,6 +213,8 @@ extern "C" __declspec(dllexport) void ReShadeUnregisterEvent(reshade::addon_even
 #if RESHADE_GUI
 extern "C" __declspec(dllexport) void ReShadeRegisterOverlay(const char *title, void(*callback)(reshade::api::effect_runtime *runtime, void *imgui_context))
 {
+	assert(callback != nullptr);
+
 	auto &overlay_list = reshade::addon::overlay_list;
 	overlay_list.emplace_back(title, callback);
 

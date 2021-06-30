@@ -5,7 +5,7 @@
 
 #include "version.h"
 #include "dll_log.hpp"
-#include "dll_config.hpp"
+#include "ini_file.hpp"
 #include "hook_manager.hpp"
 #include <Psapi.h>
 #include <Windows.h>
@@ -140,6 +140,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 
 	reshade::hooks::register_module(L"user32.dll");
 
+	extern void init_message_queue_trampolines();
+	init_message_queue_trampolines();
+
 	static UINT s_resize_w = 0, s_resize_h = 0;
 
 	// Register window class
@@ -252,8 +255,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 			desc.Windowed = true;
 			desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
-			HR_CHECK(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-				D3D11_CREATE_DEVICE_DEBUG, nullptr, 0, D3D11_SDK_VERSION, &desc, &swapchain, &device, nullptr, &immediate_context));
+#  ifndef NDEBUG
+			const UINT flags = D3D11_CREATE_DEVICE_DEBUG;
+#  else
+			const UINT flags = 0;
+#  endif
+			HR_CHECK(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &swapchain, &device, nullptr, &immediate_context));
 		}
 
 		com_ptr<ID3D11Texture2D> backbuffer;
@@ -305,11 +312,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 		reshade::hooks::register_module(L"dxgi.dll");
 		reshade::hooks::register_module(L"d3d12.dll");
 
+#  ifndef NDEBUG
 		// Enable D3D debug layer if it is available
 		{   com_ptr<ID3D12Debug> debug_iface;
 			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_iface))))
 				debug_iface->EnableDebugLayer();
 		}
+#  endif
 
 		// Initialize Direct3D 12
 		com_ptr<ID3D12Device> device;
@@ -457,7 +466,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 			}
 			else
 			{
-				// Synchronization is handled in "runtime_impl::on_present"
+				// Synchronization is handled in "swapchain_impl::on_present"
 				HR_CHECK(swapchain->Present(1, 0));
 			}
 		}
@@ -577,8 +586,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 
 			VkInstanceCreateInfo create_info { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 			create_info.pApplicationInfo = &app_info;
+#  ifndef NDEBUG
 			create_info.enabledLayerCount = ARRAYSIZE(enabled_layers);
 			create_info.ppEnabledLayerNames = enabled_layers;
+#  endif
 			create_info.enabledExtensionCount = ARRAYSIZE(enabled_extensions);
 			create_info.ppEnabledExtensionNames = enabled_extensions;
 
@@ -617,8 +628,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 			VkDeviceCreateInfo create_info { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 			create_info.queueCreateInfoCount = 1;
 			create_info.pQueueCreateInfos = &queue_info;
+#  ifndef NDEBUG
 			create_info.enabledLayerCount = ARRAYSIZE(enabled_layers);
 			create_info.ppEnabledLayerNames = enabled_layers;
+#  endif
 			create_info.enabledExtensionCount = ARRAYSIZE(enabled_extensions);
 			create_info.ppEnabledExtensionNames = enabled_extensions;
 
@@ -678,7 +691,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 
 			if (old_swapchain != VK_NULL_HANDLE)
 				VK_CALL_DEVICE(vkDestroySwapchainKHR, device, old_swapchain, nullptr);
-			VK_CALL_DEVICE(vkFreeCommandBuffers, device, cmd_alloc, uint32_t(cmd_list.size()), cmd_list.data());
+			if (!cmd_list.empty())
+				VK_CALL_DEVICE(vkFreeCommandBuffers, device, cmd_alloc, uint32_t(cmd_list.size()), cmd_list.data());
 
 			uint32_t num_swapchain_images = 0;
 			VK_CHECK(VK_CALL_DEVICE(vkGetSwapchainImagesKHR, device, swapchain, &num_swapchain_images, nullptr));
@@ -849,8 +863,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 				++dump_index < 100)
 			{
 				// Call into the original "LoadLibrary" directly, to avoid failing memory corruption checks
-				extern HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpFileName);
-				const auto ll = reshade::hooks::call(HookLoadLibraryW);
+				const auto ll = reshade::hooks::call<decltype(&LoadLibraryW)>(nullptr, LoadLibraryW);
 				if (ll == nullptr)
 					goto continue_search;
 
@@ -918,10 +931,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		reshade::hooks::register_module(get_system_path() / L"opengl32.dll");
 		// Do not register Vulkan hooks, since Vulkan layering mechanism is used instead
 
-		reshade::hooks::register_module(L"openvr_api.dll");
-#ifdef WIN64
-		reshade::hooks::register_module(L"openvr_api64.dll");
-#endif
+#  ifdef WIN64
+		reshade::hooks::register_module(L"vrclient_x64.dll");
+#  else
+		reshade::hooks::register_module(L"vrclient.dll");
+#  endif
+
+		// Register DirectInput module in case it was used to load ReShade (but ignore otherwise)
+		if (_wcsicmp(g_reshade_dll_path.stem().c_str(), L"dinput8") == 0)
+			reshade::hooks::register_module(get_system_path() / L"dinput8.dll");
+
+		// user32.dll will always be loaded at this point, so can safely initialize trampoline pointers
+		extern void init_message_queue_trampolines();
+		init_message_queue_trampolines();
 
 		LOG(INFO) << "Initialized.";
 		break;
@@ -937,7 +959,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		g_module_handle = nullptr;
 		// This duration has to be slightly larger than the timeout in 'HookGetMessage' to ensure success
 		// It should also be large enough to cover any potential other calls to previous hooks that may still be in flight from other threads
-		Sleep(1050);
+		Sleep(1000);
 
 #  ifndef NDEBUG
 		RemoveVectoredExceptionHandler(g_exception_handler_handle);

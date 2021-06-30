@@ -4,22 +4,44 @@
  */
 
 #include "dll_log.hpp"
-#include "dll_config.hpp"
+#include "ini_file.hpp"
 #include "hook_manager.hpp"
 #include "dxgi_swapchain.hpp"
 #include "d3d10/d3d10_device.hpp"
 #include "d3d11/d3d11_device.hpp"
 #include "d3d12/d3d12_command_queue.hpp"
-#include "format_utils.hpp"
 
 extern bool is_windows7();
 
 // Needs to be set whenever a DXGI call can end up in 'CDXGISwapChain::EnsureChildDeviceInternal', to avoid hooking internal D3D device creation
 extern thread_local bool g_in_dxgi_runtime;
 
+inline const char *dxgi_format_to_string(DXGI_FORMAT format)
+{
+	switch (format)
+	{
+	case DXGI_FORMAT_UNKNOWN:
+		return "DXGI_FORMAT_UNKNOWN";
+	case DXGI_FORMAT_R8G8B8A8_UNORM:
+		return "DXGI_FORMAT_R8G8B8A8_UNORM";
+	case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+		return "DXGI_FORMAT_R8G8B8A8_UNORM_SRGB";
+	case DXGI_FORMAT_B8G8R8A8_UNORM:
+		return "DXGI_FORMAT_B8G8R8A8_UNORM";
+	case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+		return "DXGI_FORMAT_B8G8R8A8_UNORM_SRGB";
+	case DXGI_FORMAT_R10G10B10A2_UNORM:
+		return "DXGI_FORMAT_R10G10B10A2_UNORM";
+	case DXGI_FORMAT_R16G16B16A16_FLOAT:
+		return "DXGI_FORMAT_R16G16B16A16_FLOAT";
+	default:
+		return nullptr;
+	}
+}
+
 static void dump_format(DXGI_FORMAT format)
 {
-	if (const char *format_string = format_to_string(format); format_string != nullptr)
+	if (const char *format_string = dxgi_format_to_string(format); format_string != nullptr)
 		LOG(INFO) << "  | Format                                  | " << std::setw(39) << format_string << " |";
 	else
 		LOG(INFO) << "  | Format                                  | " << std::setw(39) << format << " |";
@@ -61,6 +83,44 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC &desc)
 	LOG(INFO) << "  | SwapEffect                              | " << std::setw(39) << desc.SwapEffect   << " |";
 	LOG(INFO) << "  | Flags                                   | " << std::setw(39) << std::hex << desc.Flags << std::dec << " |";
 	LOG(INFO) << "  +-----------------------------------------+-----------------------------------------+";
+
+#if RESHADE_ADDON
+	reshade::api::resource_desc buffer_desc = {};
+	buffer_desc.type = reshade::api::resource_type::texture_2d;
+	buffer_desc.texture.width = desc.BufferDesc.Width;
+	buffer_desc.texture.height = desc.BufferDesc.Height;
+	buffer_desc.texture.depth_or_layers = 1;
+	buffer_desc.texture.levels = 1;
+	buffer_desc.texture.format = static_cast<reshade::api::format>(desc.BufferDesc.Format);
+	buffer_desc.texture.samples = static_cast<uint16_t>(desc.SampleDesc.Count);
+	buffer_desc.heap = reshade::api::memory_heap::gpu_only;
+
+	if (desc.BufferUsage & DXGI_USAGE_SHADER_INPUT)
+		buffer_desc.usage |= reshade::api::resource_usage::shader_resource;
+	if (desc.BufferUsage & DXGI_USAGE_RENDER_TARGET_OUTPUT)
+		buffer_desc.usage |= reshade::api::resource_usage::render_target;
+	if (desc.BufferUsage & DXGI_USAGE_SHARED)
+		buffer_desc.flags |= reshade::api::resource_flags::shared;
+	if (desc.BufferUsage & DXGI_USAGE_UNORDERED_ACCESS)
+		buffer_desc.usage |= reshade::api::resource_usage::unordered_access;
+
+	if (reshade::invoke_addon_event<reshade::addon_event::create_swapchain>(&buffer_desc))
+	{
+		desc.BufferDesc.Width = buffer_desc.texture.width;
+		desc.BufferDesc.Height = buffer_desc.texture.height;
+		desc.BufferDesc.Format = static_cast<DXGI_FORMAT>(buffer_desc.texture.format);
+		desc.SampleDesc.Count = buffer_desc.texture.samples;
+
+		if ((buffer_desc.usage & reshade::api::resource_usage::shader_resource) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_SHADER_INPUT;
+		if ((buffer_desc.usage & reshade::api::resource_usage::render_target) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		if ((buffer_desc.flags & reshade::api::resource_flags::shared) == reshade::api::resource_flags::shared)
+			desc.BufferUsage |= DXGI_USAGE_SHARED;
+		if ((buffer_desc.usage & reshade::api::resource_usage::unordered_access) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_UNORDERED_ACCESS;
+	}
+#endif
 
 	if (reshade::global_config().get("APP", "ForceWindowed"))
 	{
@@ -105,6 +165,45 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC1 &desc, DXGI_SWA
 	LOG(INFO) << "  | AlphaMode                               | " << std::setw(39) << desc.AlphaMode   << " |";
 	LOG(INFO) << "  | Flags                                   | " << std::setw(39) << std::hex << desc.Flags << std::dec << " |";
 	LOG(INFO) << "  +-----------------------------------------+-----------------------------------------+";
+
+#if RESHADE_ADDON
+	reshade::api::resource_desc buffer_desc = {};
+	buffer_desc.type = reshade::api::resource_type::texture_2d;
+	buffer_desc.texture.width = desc.Width;
+	buffer_desc.texture.height = desc.Height;
+	buffer_desc.texture.depth_or_layers = desc.Stereo ? 2 : 1;
+	buffer_desc.texture.levels = 1;
+	buffer_desc.texture.format = static_cast<reshade::api::format>(desc.Format);
+	buffer_desc.texture.samples = static_cast<uint16_t>(desc.SampleDesc.Count);
+	buffer_desc.heap = reshade::api::memory_heap::gpu_only;
+
+	if (desc.BufferUsage & DXGI_USAGE_SHADER_INPUT)
+		buffer_desc.usage |= reshade::api::resource_usage::shader_resource;
+	if (desc.BufferUsage & DXGI_USAGE_RENDER_TARGET_OUTPUT)
+		buffer_desc.usage |= reshade::api::resource_usage::render_target;
+	if (desc.BufferUsage & DXGI_USAGE_SHARED)
+		buffer_desc.flags |= reshade::api::resource_flags::shared;
+	if (desc.BufferUsage & DXGI_USAGE_UNORDERED_ACCESS)
+		buffer_desc.usage |= reshade::api::resource_usage::unordered_access;
+
+	if (reshade::invoke_addon_event<reshade::addon_event::create_swapchain>(&buffer_desc))
+	{
+		desc.Width = buffer_desc.texture.width;
+		desc.Height = buffer_desc.texture.height;
+		desc.Format = static_cast<DXGI_FORMAT>(buffer_desc.texture.format);
+		desc.Stereo = buffer_desc.texture.depth_or_layers > 1;
+		desc.SampleDesc.Count = buffer_desc.texture.samples;
+
+		if ((buffer_desc.usage & reshade::api::resource_usage::shader_resource) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_SHADER_INPUT;
+		if ((buffer_desc.usage & reshade::api::resource_usage::render_target) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		if ((buffer_desc.flags & reshade::api::resource_flags::shared) == reshade::api::resource_flags::shared)
+			desc.BufferUsage |= DXGI_USAGE_SHARED;
+		if ((buffer_desc.usage & reshade::api::resource_usage::unordered_access) != reshade::api::resource_usage::undefined)
+			desc.BufferUsage |= DXGI_USAGE_UNORDERED_ACCESS;
+	}
+#endif
 
 	if (reshade::global_config().get("APP", "ForceWindowed"))
 	{
@@ -388,6 +487,8 @@ HOOK_EXPORT HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void **pp
 	// IDXGIFactory2 {50C83A1C-E072-4C48-87B0-3630FA36A6D0}
 	// IDXGIFactory3 {25483823-CD46-4C7D-86CA-47AA95B837BD}
 	// IDXGIFactory4 {1BC6EA02-EF36-464F-BF0C-21CA39E5168A}
+	// IDXGIFactory5 {7632E1f5-EE65-4DCA-87FD-84CD75F8838D}
+	// IDXGIFactory6 {C1B6694F-FF09-44A9-B03C-77900A0A1D17}
 
 	LOG(INFO) << "Redirecting " << "CreateDXGIFactory2" << '(' << "Flags = " << std::hex << Flags << std::dec << ", riid = " << riid << ", ppFactory = " << ppFactory << ')' << " ...";
 
@@ -428,7 +529,7 @@ HOOK_EXPORT HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void **pp
 
 HOOK_EXPORT HRESULT WINAPI DXGIGetDebugInterface1(UINT Flags, REFIID riid, void **pDebug)
 {
-	static const auto trampoline = reshade::hooks::call(DXGIGetDebugInterface1);
+	const auto trampoline = reshade::hooks::call(DXGIGetDebugInterface1);
 
 	// DXGIGetDebugInterface1 is not available on Windows 7, so act as if Windows SDK is not installed
 	if (trampoline == nullptr)
@@ -439,7 +540,7 @@ HOOK_EXPORT HRESULT WINAPI DXGIGetDebugInterface1(UINT Flags, REFIID riid, void 
 
 HOOK_EXPORT HRESULT WINAPI DXGIDeclareAdapterRemovalSupport()
 {
-	static const auto trampoline = reshade::hooks::call(DXGIDeclareAdapterRemovalSupport);
+	const auto trampoline = reshade::hooks::call(DXGIDeclareAdapterRemovalSupport);
 
 	// DXGIDeclareAdapterRemovalSupport is supported on Windows 10 version 1803 and up, silently ignore on older systems
 	if (trampoline == nullptr)

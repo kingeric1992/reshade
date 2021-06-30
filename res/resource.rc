@@ -17,6 +17,7 @@
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_NEUD)
 LANGUAGE LANG_NEUTRAL, SUBLANG_DEFAULT
+#pragma code_page(1252)
 
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
@@ -54,11 +55,15 @@ IDR_COPY_PS             RCDATA                  "shaders\\copy_ps.cso"
 
 IDR_FULLSCREEN_VS       RCDATA                  "shaders\\fullscreen_vs.cso"
 
-IDR_IMGUI_PS            RCDATA                  "shaders\\imgui_ps.cso"
+IDR_IMGUI_PS_3_0        RCDATA                  "shaders\\imgui_ps_3_0.cso"
+
+IDR_IMGUI_PS_4_0        RCDATA                  "shaders\\imgui_ps_4_0.cso"
 
 IDR_IMGUI_PS_SPIRV      RCDATA                  "shaders\\imgui_ps.spv"
 
-IDR_IMGUI_VS            RCDATA                  "shaders\\imgui_vs.cso"
+IDR_IMGUI_VS_3_0        RCDATA                  "shaders\\imgui_vs_3_0.cso"
+
+IDR_IMGUI_VS_4_0        RCDATA                  "shaders\\imgui_vs_4_0.cso"
 
 IDR_IMGUI_VS_SPIRV      RCDATA                  "shaders\\imgui_vs.spv"
 
@@ -81,6 +86,8 @@ IDR_LICENSE_UTFCPP      RCDATA                  "..\\deps\\utfcpp\\LICENSE"
 IDR_LICENSE_VMA         RCDATA                  "..\\deps\\vma\\LICENSE.txt"
 
 IDR_LICENSE_VULKAN      RCDATA                  "..\\deps\\vulkan\\LICENSE.txt"
+
+IDB_MAIN_ICON           RCDATA                  "main_icon.png"
 
 #endif
 

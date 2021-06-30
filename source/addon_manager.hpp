@@ -7,69 +7,29 @@
 
 #include "addon_impl.hpp"
 #include "reshade_events.hpp"
-#include <string>
+
+#if RESHADE_ADDON
 
 namespace reshade
 {
-#if RESHADE_ADDON
-	template <addon_event ev, typename F, typename RArgs = addon_event_traits<ev>::decl>
-	struct addon_event_call_chain;
-	template <addon_event ev, typename F, typename R, typename... Args>
-	struct addon_event_call_chain<ev, F, R(*)(addon_event_trampoline<ev> &, Args...)> : public addon_event_trampoline_data<R(Args...)>
-	{
-		F terminator_data;
-
-		explicit addon_event_call_chain(F &&lambda) : terminator_data(lambda)
-		{
-			std::vector<void *> &event_list = addon::event_list[static_cast<size_t>(ev)];
-#if _ITERATOR_DEBUG_LEVEL != 0
-			next_callback = reinterpret_cast<callback_type *>(event_list.data());
-			last_callback = next_callback + event_list.size();
-#else
-			// std::vector already stores pointers to the begin and end, so loading those directly generates better code (but only works without iterator debugging in case it is empty)
-			next_callback = reinterpret_cast<callback_type *>(&(*event_list.begin()));
-			last_callback = reinterpret_cast<callback_type *>(&(*event_list.end()));
-#endif
-			term_callback = static_cast<callback_type>(
-				[](addon_event_trampoline_data &call_chain, Args... args) -> R {
-					return static_cast<addon_event_call_chain &>(call_chain).terminator_data(std::forward<Args>(args)...);
-				});
-		}
-	};
-#endif
-
 	template <addon_event ev, typename... Args>
-	inline std::enable_if_t<addon_event_traits<ev>::type == 1, void> invoke_addon_event(Args... args)
+	inline std::enable_if_t<addon_event_traits<ev>::type == 1, void> invoke_addon_event(const Args &... args)
 	{
-#if RESHADE_ADDON
 		std::vector<void *> &event_list = addon::event_list[static_cast<size_t>(ev)];
 		for (size_t cb = 0, count = event_list.size(); cb < count; ++cb) // Generates better code than ranged-based for loop
-			reinterpret_cast<typename reshade::addon_event_traits<ev>::decl>(event_list[cb])(std::forward<Args>(args)...);
-#endif
+			reinterpret_cast<typename reshade::addon_event_traits<ev>::decl>(event_list[cb])(args...);
 	}
 	template <addon_event ev, typename... Args>
-	inline std::enable_if_t<addon_event_traits<ev>::type == 2, bool> invoke_addon_event(Args... args)
+	inline std::enable_if_t<addon_event_traits<ev>::type == 2, bool> invoke_addon_event(const Args &... args)
 	{
-		bool skip = false;
-#if RESHADE_ADDON
 		std::vector<void *> &event_list = addon::event_list[static_cast<size_t>(ev)];
 		for (size_t cb = 0, count = event_list.size(); cb < count; ++cb)
-			skip |= reinterpret_cast<typename reshade::addon_event_traits<ev>::decl>(event_list[cb])(std::forward<Args>(args)...);
-#endif
-		return skip;
-	}
-	template <addon_event ev, typename F, typename... Args>
-	inline std::enable_if_t< addon_event_traits<ev>::type == 3, void> invoke_addon_event(F &&terminator, Args... args)
-	{
-#if RESHADE_ADDON
-		addon_event_call_chain<ev, F>(std::move(terminator))(std::forward<Args>(args)...);
-#else
-		terminator(std::forward<Args>(args)...);
-#endif
+			if (reinterpret_cast<typename reshade::addon_event_traits<ev>::decl>(event_list[cb])(args...))
+				return true;
+		return false;
 	}
 }
 
-#if RESHADE_ADDON
 namespace reshade::addon
 {
 	struct info
@@ -111,4 +71,5 @@ namespace reshade::addon
 	/// </summary>
 	void enable_or_disable_addons(bool enabled);
 }
+
 #endif

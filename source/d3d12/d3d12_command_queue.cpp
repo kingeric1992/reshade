@@ -11,7 +11,6 @@
 
 D3D12CommandQueue::D3D12CommandQueue(D3D12Device *device, ID3D12CommandQueue *original) :
 	command_queue_impl(device, original),
-	_interface_version(0),
 	_device(device)
 {
 	assert(_orig != nullptr && _device != nullptr);
@@ -147,8 +146,6 @@ void    STDMETHODCALLTYPE D3D12CommandQueue::CopyTileMappings(ID3D12Resource *pD
 }
 void    STDMETHODCALLTYPE D3D12CommandQueue::ExecuteCommandLists(UINT NumCommandLists, ID3D12CommandList *const *ppCommandLists)
 {
-	flush_immediate_command_list();
-
 	std::vector<ID3D12CommandList *> command_lists(NumCommandLists);
 	for (UINT i = 0; i < NumCommandLists; i++)
 	{
@@ -157,7 +154,9 @@ void    STDMETHODCALLTYPE D3D12CommandQueue::ExecuteCommandLists(UINT NumCommand
 		if (com_ptr<D3D12GraphicsCommandList> command_list_proxy;
 			SUCCEEDED(ppCommandLists[i]->QueryInterface(&command_list_proxy)))
 		{
+#if RESHADE_ADDON
 			reshade::invoke_addon_event<reshade::addon_event::execute_command_list>(this, command_list_proxy.get());
+#endif
 
 			// Get original command list pointer from proxy object
 			command_lists[i] = command_list_proxy->_orig;
@@ -168,6 +167,8 @@ void    STDMETHODCALLTYPE D3D12CommandQueue::ExecuteCommandLists(UINT NumCommand
 			command_lists[i] = ppCommandLists[i];
 		}
 	}
+
+	flush_immediate_command_list();
 
 	_orig->ExecuteCommandLists(NumCommandLists, command_lists.data());
 }

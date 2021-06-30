@@ -10,7 +10,7 @@
 #include "d3d12_command_queue_downlevel.hpp"
 
 D3D12CommandQueueDownlevel::D3D12CommandQueueDownlevel(D3D12CommandQueue *queue, ID3D12CommandQueueDownlevel *original) :
-	runtime_impl(queue->_device, queue, nullptr),
+	swapchain_impl(queue->_device, queue, nullptr),
 	_orig(original),
 	_parent_queue(queue)
 {
@@ -44,10 +44,14 @@ ULONG   STDMETHODCALLTYPE D3D12CommandQueueDownlevel::Release()
 
 HRESULT STDMETHODCALLTYPE D3D12CommandQueueDownlevel::Present(ID3D12GraphicsCommandList *pOpenCommandList, ID3D12Resource *pSourceTex2D, HWND hWindow, D3D12_DOWNLEVEL_PRESENT_FLAGS Flags)
 {
+#if RESHADE_ADDON
 	reshade::invoke_addon_event<reshade::addon_event::present>(_parent_queue, this);
+#endif
 
 	assert(pSourceTex2D != nullptr);
-	runtime_impl::on_present(pSourceTex2D, hWindow);
+	swapchain_impl::on_present(pSourceTex2D, hWindow);
+
+	_parent_queue->flush_immediate_command_list();
 
 	// Get original command list pointer from proxy object
 	if (com_ptr<D3D12GraphicsCommandList> command_list_proxy;

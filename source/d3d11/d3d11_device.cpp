@@ -7,11 +7,13 @@
 #include "d3d11_device.hpp"
 #include "d3d11_device_context.hpp"
 #include "dxgi/dxgi_device.hpp"
-#include "render_d3d11_utils.hpp"
+#include "reshade_api_type_convert.hpp"
+
+#define output_interface_object(out, h) \
+	assert(h.handle != 0 && SUCCEEDED(reinterpret_cast<IUnknown *>(h.handle)->QueryInterface(out)) && (*out)->Release() == 1), *out = reinterpret_cast<decltype(*out)>(h.handle)
 
 D3D11Device::D3D11Device(IDXGIDevice1 *dxgi_device, ID3D11Device *original) :
 	device_impl(original),
-	_interface_version(0),
 	_dxgi_device(new DXGIDevice(dxgi_device, this))
 {
 	assert(_orig != nullptr);
@@ -119,437 +121,598 @@ ULONG   STDMETHODCALLTYPE D3D11Device::Release()
 
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateBuffer(const D3D11_BUFFER_DESC *pDesc, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Buffer **ppBuffer)
 {
+#if RESHADE_ADDON
 	if (pDesc == nullptr)
 		return E_INVALIDARG;
+	if (ppBuffer == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateBuffer(pDesc, pInitialData, nullptr);
 
-	D3D11_BUFFER_DESC new_desc = *pDesc;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc);
 
 	static_assert(sizeof(*pInitialData) == sizeof(reshade::api::subresource_data));
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppBuffer](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::buffer)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, new_desc);
-
-			hr = _orig->CreateBuffer(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppBuffer);
-			if (SUCCEEDED(hr))
-			{
-				if (ppBuffer != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppBuffer);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateBuffer" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | ByteWidth                               | " << std::setw(39) << new_desc.ByteWidth << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppBuffer, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(new_desc), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	const HRESULT hr = _orig->CreateBuffer(pDesc, pInitialData, ppBuffer);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppBuffer);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppBuffer) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateBuffer" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture1D(const D3D11_TEXTURE1D_DESC *pDesc, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Texture1D **ppTexture1D)
 {
+#if RESHADE_ADDON
 	if (pDesc == nullptr)
 		return E_INVALIDARG;
+	if (ppTexture1D == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateTexture1D(pDesc, pInitialData, nullptr);
 
-	D3D11_TEXTURE1D_DESC new_desc = *pDesc;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc);
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppTexture1D](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::texture_1d)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, new_desc);
-
-			hr = _orig->CreateTexture1D(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppTexture1D);
-			if (SUCCEEDED(hr))
-			{
-				if (ppTexture1D != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppTexture1D);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateTexture1D" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | Width                                   | " << std::setw(39) << new_desc.Width << " |";
-				LOG(DEBUG) << "  | MipLevels                               | " << std::setw(39) << new_desc.MipLevels << " |";
-				LOG(DEBUG) << "  | ArraySize                               | " << std::setw(39) << new_desc.ArraySize << " |";
-				LOG(DEBUG) << "  | Format                                  | " << std::setw(39) << new_desc.Format << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppTexture1D, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(new_desc), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	const HRESULT hr = _orig->CreateTexture1D(pDesc, pInitialData, ppTexture1D);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppTexture1D);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppTexture1D) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateTexture1D" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture2D(const D3D11_TEXTURE2D_DESC *pDesc, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Texture2D **ppTexture2D)
 {
+#if RESHADE_ADDON
 	if (pDesc == nullptr)
 		return E_INVALIDARG;
+	if (ppTexture2D == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateTexture2D(pDesc, pInitialData, nullptr);
 
-	D3D11_TEXTURE2D_DESC new_desc = *pDesc;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc);
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppTexture2D](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::texture_2d)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, new_desc);
-
-			hr = _orig->CreateTexture2D(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppTexture2D);
-			if (SUCCEEDED(hr))
-			{
-				if (ppTexture2D != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppTexture2D);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateTexture2D" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | Width                                   | " << std::setw(39) << new_desc.Width << " |";
-				LOG(DEBUG) << "  | Height                                  | " << std::setw(39) << new_desc.Height << " |";
-				LOG(DEBUG) << "  | MipLevels                               | " << std::setw(39) << new_desc.MipLevels << " |";
-				LOG(DEBUG) << "  | ArraySize                               | " << std::setw(39) << new_desc.ArraySize << " |";
-				LOG(DEBUG) << "  | Format                                  | " << std::setw(39) << new_desc.Format << " |";
-				LOG(DEBUG) << "  | SampleCount                             | " << std::setw(39) << new_desc.SampleDesc.Count << " |";
-				LOG(DEBUG) << "  | SampleQuality                           | " << std::setw(39) << new_desc.SampleDesc.Quality << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppTexture2D, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(new_desc), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	const HRESULT hr = _orig->CreateTexture2D(pDesc, pInitialData, ppTexture2D);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppTexture2D);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppTexture2D) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateTexture2D" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture3D(const D3D11_TEXTURE3D_DESC *pDesc, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Texture3D **ppTexture3D)
 {
+#if RESHADE_ADDON
 	if (pDesc == nullptr)
 		return E_INVALIDARG;
+	if (ppTexture3D == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateTexture3D(pDesc, pInitialData, nullptr);
 
-	D3D11_TEXTURE3D_DESC new_desc = *pDesc;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc);
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppTexture3D](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::texture_3d)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, new_desc);
-
-			hr = _orig->CreateTexture3D(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppTexture3D);
-			if (SUCCEEDED(hr))
-			{
-				if (ppTexture3D != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppTexture3D);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateTexture3D" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | Width                                   | " << std::setw(39) << new_desc.Width << " |";
-				LOG(DEBUG) << "  | Height                                  | " << std::setw(39) << new_desc.Height << " |";
-				LOG(DEBUG) << "  | Depth                                   | " << std::setw(39) << new_desc.Depth << " |";
-				LOG(DEBUG) << "  | MipLevels                               | " << std::setw(39) << new_desc.MipLevels << " |";
-				LOG(DEBUG) << "  | Format                                  | " << std::setw(39) << new_desc.Format << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppTexture3D, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(new_desc), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	const HRESULT hr = _orig->CreateTexture3D(pDesc, pInitialData, ppTexture3D);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppTexture3D);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppTexture3D) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateTexture3D" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView(ID3D11Resource *pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC *pDesc, ID3D11ShaderResourceView **ppSRView)
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView(ID3D11Resource *pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC *pDesc, ID3D11ShaderResourceView **ppShaderResourceView)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr) // This can happen if the passed resource failed creation previously, but application did not do error checking to catch that
 		return E_INVALIDARG;
+	if (ppShaderResourceView == nullptr) // This can happen when application only wants to validate input parameter
+		return _orig->CreateShaderResourceView(pResource, pDesc, nullptr);
 
-	D3D11_SHADER_RESOURCE_VIEW_DESC new_desc =
-		pDesc != nullptr ? *pDesc : D3D11_SHADER_RESOURCE_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc != nullptr ? *pDesc : D3D11_SHADER_RESOURCE_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppSRView](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::shader_resource)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, desc, &replacement))
+	{
+		output_interface_object(ppShaderResourceView, replacement);
+		return S_OK;
+	}
+#endif
 
-			hr = _orig->CreateShaderResourceView(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_SRV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppSRView);
-			if (SUCCEEDED(hr))
-			{
-				if (ppSRView != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppSRView);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateShaderResourceView" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, reshade::d3d11::convert_resource_view_desc(new_desc));
+	const HRESULT hr = _orig->CreateShaderResourceView(pResource, pDesc, ppShaderResourceView);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppShaderResourceView);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppShaderResourceView) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateShaderResourceView" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView(ID3D11Resource *pResource, const D3D11_UNORDERED_ACCESS_VIEW_DESC *pDesc, ID3D11UnorderedAccessView **ppUAView)
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView(ID3D11Resource *pResource, const D3D11_UNORDERED_ACCESS_VIEW_DESC *pDesc, ID3D11UnorderedAccessView **ppUnorderedAccessView)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr)
 		return E_INVALIDARG;
+	if (ppUnorderedAccessView == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateUnorderedAccessView(pResource, pDesc, nullptr);
 
-	D3D11_UNORDERED_ACCESS_VIEW_DESC new_desc =
-		pDesc != nullptr ? *pDesc : D3D11_UNORDERED_ACCESS_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc != nullptr ? *pDesc : D3D11_UNORDERED_ACCESS_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppUAView](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::unordered_access)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, desc, &replacement))
+	{
+		output_interface_object(ppUnorderedAccessView, replacement);
+		return S_OK;
+	}
+#endif
 
-			hr = _orig->CreateUnorderedAccessView(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_UAV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppUAView);
-			if (SUCCEEDED(hr))
-			{
-				if (ppUAView != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppUAView);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateUnorderedAccessView" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, reshade::d3d11::convert_resource_view_desc(new_desc));
+	const HRESULT hr = _orig->CreateUnorderedAccessView(pResource, pDesc, ppUnorderedAccessView);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppUnorderedAccessView);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppUnorderedAccessView) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateUnorderedAccessView" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetView(ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC *pDesc, ID3D11RenderTargetView **ppRTView)
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetView(ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC *pDesc, ID3D11RenderTargetView **ppRenderTargetView)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr)
 		return E_INVALIDARG;
+	if (ppRenderTargetView == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateRenderTargetView(pResource, pDesc, nullptr);
 
-	D3D11_RENDER_TARGET_VIEW_DESC new_desc =
-		pDesc != nullptr ? *pDesc : D3D11_RENDER_TARGET_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc != nullptr ? *pDesc : D3D11_RENDER_TARGET_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppRTView](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::render_target)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, desc, &replacement))
+	{
+		output_interface_object(ppRenderTargetView, replacement);
+		return S_OK;
+	}
+#endif
 
-			hr = _orig->CreateRenderTargetView(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_RTV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppRTView);
-			if (SUCCEEDED(hr))
-			{
-				if (ppRTView != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppRTView);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateRenderTargetView" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, reshade::d3d11::convert_resource_view_desc(new_desc));
+	const HRESULT hr = _orig->CreateRenderTargetView(pResource, pDesc, ppRenderTargetView);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppRenderTargetView);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppRenderTargetView) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateRenderTargetView" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateDepthStencilView(ID3D11Resource *pResource, const D3D11_DEPTH_STENCIL_VIEW_DESC *pDesc, ID3D11DepthStencilView **ppDepthStencilView)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr)
 		return E_INVALIDARG;
+	if (ppDepthStencilView == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateDepthStencilView(pResource, pDesc, nullptr);
 
-	D3D11_DEPTH_STENCIL_VIEW_DESC new_desc =
-		pDesc != nullptr ? *pDesc : D3D11_DEPTH_STENCIL_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_DSV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc != nullptr ? *pDesc : D3D11_DEPTH_STENCIL_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_DSV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppDepthStencilView](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::depth_stencil)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::depth_stencil, desc, &replacement))
+	{
+		output_interface_object(ppDepthStencilView, replacement);
+		return S_OK;
+	}
+#endif
 
-			hr = _orig->CreateDepthStencilView(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_DSV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppDepthStencilView);
-			if (SUCCEEDED(hr))
-			{
-				if (ppDepthStencilView != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppDepthStencilView);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateDepthStencilView" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::depth_stencil, reshade::d3d11::convert_resource_view_desc(new_desc));
+	const HRESULT hr = _orig->CreateDepthStencilView(pResource, pDesc, ppDepthStencilView);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppDepthStencilView);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::depth_stencil, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppDepthStencilView) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateDepthStencilView" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateInputLayout(const D3D11_INPUT_ELEMENT_DESC *pInputElementDescs, UINT NumElements, const void *pShaderBytecodeWithInputSignature, SIZE_T BytecodeLength, ID3D11InputLayout **ppInputLayout)
 {
-	return _orig->CreateInputLayout(pInputElementDescs, NumElements, pShaderBytecodeWithInputSignature, BytecodeLength, ppInputLayout);
+#if RESHADE_ADDON
+	if (ppInputLayout == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateInputLayout(pInputElementDescs, NumElements, pShaderBytecodeWithInputSignature, BytecodeLength, nullptr);
+
+	reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pInputElementDescs, NumElements);
+	desc.graphics.vertex_shader.code = pShaderBytecodeWithInputSignature;
+	desc.graphics.vertex_shader.code_size = BytecodeLength;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppInputLayout, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateInputLayout(pInputElementDescs, NumElements, pShaderBytecodeWithInputSignature, BytecodeLength, ppInputLayout);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppInputLayout) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateInputLayout" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateVertexShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11VertexShader **ppVertexShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppVertexShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::vertex || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateVertexShader(code, code_size, pClassLinkage, ppVertexShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateVertexShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::vertex, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppVertexShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateVertexShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::vertex_shader };
+	desc.graphics.vertex_shader.code = pShaderBytecode;
+	desc.graphics.vertex_shader.code_size = BytecodeLength;
+	desc.graphics.vertex_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppVertexShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateVertexShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppVertexShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppVertexShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateVertexShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateGeometryShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11GeometryShader **ppGeometryShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppGeometryShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::geometry || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateGeometryShader(code, code_size, pClassLinkage, ppGeometryShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateGeometryShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::geometry, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppGeometryShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateGeometryShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::geometry_shader };
+	desc.graphics.geometry_shader.code = pShaderBytecode;
+	desc.graphics.geometry_shader.code_size = BytecodeLength;
+	desc.graphics.geometry_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppGeometryShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateGeometryShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppGeometryShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppGeometryShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateGeometryShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateGeometryShaderWithStreamOutput(const void *pShaderBytecode, SIZE_T BytecodeLength, const D3D11_SO_DECLARATION_ENTRY *pSODeclaration, UINT NumEntries, const UINT *pBufferStrides, UINT NumStrides, UINT RasterizedStream, ID3D11ClassLinkage *pClassLinkage, ID3D11GeometryShader **ppGeometryShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pSODeclaration, NumEntries, pBufferStrides, NumStrides, RasterizedStream, pClassLinkage, ppGeometryShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::geometry || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateGeometryShaderWithStreamOutput(code, code_size, pSODeclaration, NumEntries, pBufferStrides, NumStrides, RasterizedStream, pClassLinkage, ppGeometryShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateGeometryShaderWithStreamOutput" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::geometry, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppGeometryShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateGeometryShaderWithStreamOutput(pShaderBytecode, BytecodeLength, pSODeclaration, NumEntries, pBufferStrides, NumStrides, RasterizedStream, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::geometry_shader };
+	desc.graphics.geometry_shader.code = pShaderBytecode;
+	desc.graphics.geometry_shader.code_size = BytecodeLength;
+	desc.graphics.geometry_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr && NumEntries == 0 && NumStrides == 0 &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppGeometryShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateGeometryShaderWithStreamOutput(pShaderBytecode, BytecodeLength, pSODeclaration, NumEntries, pBufferStrides, NumStrides, RasterizedStream, pClassLinkage, ppGeometryShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppGeometryShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateGeometryShaderWithStreamOutput" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreatePixelShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11PixelShader **ppPixelShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppPixelShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::pixel || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreatePixelShader(code, code_size, pClassLinkage, ppPixelShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreatePixelShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::pixel, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppPixelShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreatePixelShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::pixel_shader };
+	desc.graphics.pixel_shader.code = pShaderBytecode;
+	desc.graphics.pixel_shader.code_size = BytecodeLength;
+	desc.graphics.pixel_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppPixelShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreatePixelShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppPixelShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppPixelShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreatePixelShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateHullShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11HullShader **ppHullShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppHullShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::hull || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateHullShader(code, code_size, pClassLinkage, ppHullShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateHullShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::hull, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppHullShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateHullShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::hull_shader };
+	desc.graphics.hull_shader.code = pShaderBytecode;
+	desc.graphics.hull_shader.code_size = BytecodeLength;
+	desc.graphics.hull_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppHullShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateHullShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppHullShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppHullShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateHullShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateDomainShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11DomainShader **ppDomainShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppDomainShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::domain || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateDomainShader(code, code_size, pClassLinkage, ppDomainShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateDomainShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::domain, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppDomainShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateDomainShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::domain_shader };
+	desc.graphics.domain_shader.code = pShaderBytecode;
+	desc.graphics.domain_shader.code_size = BytecodeLength;
+	desc.graphics.domain_shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppDomainShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateDomainShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppDomainShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppDomainShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateDomainShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateComputeShader(const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage, ID3D11ComputeShader **ppComputeShader)
 {
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_shader_module>(
-		[this, &hr, pClassLinkage, ppComputeShader](reshade::api::device *, reshade::api::shader_stage type, reshade::api::shader_format format, const char *, const void *code, size_t code_size) {
-			if (type != reshade::api::shader_stage::compute || format != reshade::api::shader_format::dxbc)
-				return false;
-			hr = _orig->CreateComputeShader(code, code_size, pClassLinkage, ppComputeShader);
-			if (SUCCEEDED(hr))
-			{
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device::CreateComputeShader" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::shader_stage::compute, reshade::api::shader_format::dxbc, nullptr, pShaderBytecode, BytecodeLength);
+#if RESHADE_ADDON
+	if (ppComputeShader == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateComputeShader(pShaderBytecode, BytecodeLength, pClassLinkage, nullptr);
+
+	reshade::api::pipeline_desc desc = { reshade::api::pipeline_stage::compute_shader };
+	desc.compute.shader.code = pShaderBytecode;
+	desc.compute.shader.code_size = BytecodeLength;
+	desc.compute.shader.format = reshade::api::shader_format::dxbc;
+
+	if (reshade::api::pipeline replacement = { 0 };
+		pClassLinkage == nullptr &&
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppComputeShader, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateComputeShader(pShaderBytecode, BytecodeLength, pClassLinkage, ppComputeShader);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppComputeShader) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateComputeShader" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateClassLinkage(ID3D11ClassLinkage **ppLinkage)
@@ -558,19 +721,133 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateClassLinkage(ID3D11ClassLinkage **p
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateBlendState(const D3D11_BLEND_DESC *pBlendStateDesc, ID3D11BlendState **ppBlendState)
 {
-	return _orig->CreateBlendState(pBlendStateDesc, ppBlendState);
+#if RESHADE_ADDON
+	if (ppBlendState == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateBlendState(pBlendStateDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pBlendStateDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppBlendState, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateBlendState(pBlendStateDesc, ppBlendState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppBlendState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateBlendState" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateDepthStencilState(const D3D11_DEPTH_STENCIL_DESC *pDepthStencilDesc, ID3D11DepthStencilState **ppDepthStencilState)
 {
-	return _orig->CreateDepthStencilState(pDepthStencilDesc, ppDepthStencilState);
+#if RESHADE_ADDON
+	if (ppDepthStencilState == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateDepthStencilState(pDepthStencilDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pDepthStencilDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppDepthStencilState, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateDepthStencilState(pDepthStencilDesc, ppDepthStencilState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppDepthStencilState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateDepthStencilState" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState(const D3D11_RASTERIZER_DESC *pRasterizerDesc, ID3D11RasterizerState **ppRasterizerState)
 {
-	return _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+#if RESHADE_ADDON
+	if (ppRasterizerState == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateRasterizerState(pRasterizerDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pRasterizerDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppRasterizerState, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppRasterizerState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateRasterizerState" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateSamplerState(const D3D11_SAMPLER_DESC *pSamplerDesc, ID3D11SamplerState **ppSamplerState)
 {
-	return _orig->CreateSamplerState(pSamplerDesc, ppSamplerState);
+#if RESHADE_ADDON
+	if (pSamplerDesc == nullptr)
+		return E_INVALIDARG;
+	if (ppSamplerState == nullptr) // This can happen when application only wants to validate input parameters
+		return _orig->CreateSamplerState(pSamplerDesc, nullptr);
+
+	const reshade::api::sampler_desc desc = reshade::d3d11::convert_sampler_desc(*pSamplerDesc);
+
+	if (reshade::api::sampler replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_sampler>(this, desc, &replacement))
+	{
+		output_interface_object(ppSamplerState, replacement);
+		return S_OK;
+	}
+#endif
+
+	const HRESULT hr = _orig->CreateSamplerState(pSamplerDesc, ppSamplerState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_sampler>(this, desc, reshade::api::sampler { reinterpret_cast<uintptr_t>(*ppSamplerState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::CreateSamplerState" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateQuery(const D3D11_QUERY_DESC *pQueryDesc, ID3D11Query **ppQuery)
 {
@@ -610,7 +887,55 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeferredContext(UINT ContextFlags, 
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResource(HANDLE hResource, REFIID ReturnedInterface, void **ppResource)
 {
-	return _orig->OpenSharedResource(hResource, ReturnedInterface, ppResource);
+	const HRESULT hr = _orig->OpenSharedResource(hResource, ReturnedInterface, ppResource);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		const auto resource = static_cast<ID3D11Resource *>(*ppResource);
+		reshade::api::resource_desc desc;
+
+		if (com_ptr<ID3D11Buffer> resource_impl;
+			SUCCEEDED(resource->QueryInterface(&resource_impl)))
+		{
+			D3D11_BUFFER_DESC internal_desc;
+			resource_impl->GetDesc(&internal_desc);
+			desc = reshade::d3d11::convert_resource_desc(internal_desc);
+		}
+		if (com_ptr<ID3D11Texture1D> resource_impl;
+			SUCCEEDED(resource->QueryInterface(&resource_impl)))
+		{
+			D3D11_TEXTURE1D_DESC internal_desc;
+			resource_impl->GetDesc(&internal_desc);
+			desc = reshade::d3d11::convert_resource_desc(internal_desc);
+		}
+		if (com_ptr<ID3D11Texture2D> resource_impl;
+			SUCCEEDED(resource->QueryInterface(&resource_impl)))
+		{
+			D3D11_TEXTURE2D_DESC internal_desc;
+			resource_impl->GetDesc(&internal_desc);
+			desc = reshade::d3d11::convert_resource_desc(internal_desc);
+		}
+		if (com_ptr<ID3D11Texture3D> resource_impl;
+			SUCCEEDED(resource->QueryInterface(&resource_impl)))
+		{
+			D3D11_TEXTURE3D_DESC internal_desc;
+			resource_impl->GetDesc(&internal_desc);
+			desc = reshade::d3d11::convert_resource_desc(internal_desc);
+		}
+
+		assert((desc.flags & reshade::api::resource_flags::shared) == reshade::api::resource_flags::shared);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(this, desc, nullptr, reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(resource) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device::OpenSharedResource" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CheckFormatSupport(DXGI_FORMAT Format, UINT *pFormatSupport)
 {
@@ -710,13 +1035,69 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeferredContext1(UINT ContextFlags,
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateBlendState1(const D3D11_BLEND_DESC1 *pBlendStateDesc, ID3D11BlendState1 **ppBlendState)
 {
+#if RESHADE_ADDON
+	if (ppBlendState == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device1 *>(_orig)->CreateBlendState1(pBlendStateDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pBlendStateDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppBlendState, replacement);
+		return S_OK;
+	}
+#endif
+
 	assert(_interface_version >= 1);
-	return static_cast<ID3D11Device1 *>(_orig)->CreateBlendState1(pBlendStateDesc, ppBlendState);
+	const HRESULT hr = static_cast<ID3D11Device1 *>(_orig)->CreateBlendState1(pBlendStateDesc, ppBlendState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppBlendState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device1::CreateBlendState1" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState1(const D3D11_RASTERIZER_DESC1 *pRasterizerDesc, ID3D11RasterizerState1 **ppRasterizerState)
 {
+#if RESHADE_ADDON
+	if (ppRasterizerState == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device1 *>(_orig)->CreateRasterizerState1(pRasterizerDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pRasterizerDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppRasterizerState, replacement);
+		return S_OK;
+	}
+#endif
+
 	assert(_interface_version >= 1);
-	return static_cast<ID3D11Device1 *>(_orig)->CreateRasterizerState1(pRasterizerDesc, ppRasterizerState);
+	const HRESULT hr = static_cast<ID3D11Device1 *>(_orig)->CreateRasterizerState1(pRasterizerDesc, ppRasterizerState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppRasterizerState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device1::CreateRasterizerState1" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeviceContextState(UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, REFIID EmulatedInterface, D3D_FEATURE_LEVEL *pChosenFeatureLevel, ID3DDeviceContextState **ppContextState)
 {
@@ -783,193 +1164,235 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CheckMultisampleQualityLevels1(DXGI_FORMA
 
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture2D1(const D3D11_TEXTURE2D_DESC1 *pDesc1, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Texture2D1 **ppTexture2D)
 {
+#if RESHADE_ADDON
 	if (pDesc1 == nullptr)
 		return E_INVALIDARG;
+	if (ppTexture2D == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateTexture2D1(pDesc1, pInitialData, nullptr);
 
-	D3D11_TEXTURE2D_DESC1 new_desc = *pDesc1;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc1);
 
-	HRESULT hr = E_FAIL;
-	// D3D11_TEXTURE2D_DESC1 is a superset of D3D11_TEXTURE2D_DESC
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppTexture2D](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::texture_2d)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, reinterpret_cast<D3D11_TEXTURE2D_DESC &>(new_desc));
-
-			assert(_interface_version >= 3);
-			hr = static_cast<ID3D11Device3 *>(_orig)->CreateTexture2D1(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppTexture2D);
-			if (SUCCEEDED(hr))
-			{
-				if (ppTexture2D != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppTexture2D);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device3::CreateTexture2D1" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | Width                                   | " << std::setw(39) << new_desc.Width << " |";
-				LOG(DEBUG) << "  | Height                                  | " << std::setw(39) << new_desc.Height << " |";
-				LOG(DEBUG) << "  | MipLevels                               | " << std::setw(39) << new_desc.MipLevels << " |";
-				LOG(DEBUG) << "  | ArraySize                               | " << std::setw(39) << new_desc.ArraySize << " |";
-				LOG(DEBUG) << "  | Format                                  | " << std::setw(39) << new_desc.Format << " |";
-				LOG(DEBUG) << "  | SampleCount                             | " << std::setw(39) << new_desc.SampleDesc.Count << " |";
-				LOG(DEBUG) << "  | SampleQuality                           | " << std::setw(39) << new_desc.SampleDesc.Quality << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  | TextureLayout                           | " << std::setw(39) << new_desc.TextureLayout << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		pDesc1->TextureLayout == D3D11_TEXTURE_LAYOUT_UNDEFINED &&
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppTexture2D, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(reinterpret_cast<D3D11_TEXTURE2D_DESC &>(new_desc)), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	assert(_interface_version >= 3);
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateTexture2D1(pDesc1, pInitialData, ppTexture2D);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppTexture2D);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppTexture2D) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateTexture2D1" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture3D1(const D3D11_TEXTURE3D_DESC1 *pDesc1, const D3D11_SUBRESOURCE_DATA *pInitialData, ID3D11Texture3D1 **ppTexture3D)
 {
+#if RESHADE_ADDON
 	if (pDesc1 == nullptr)
 		return E_INVALIDARG;
+	if (ppTexture3D == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateTexture3D1(pDesc1, pInitialData, nullptr);
 
-	D3D11_TEXTURE3D_DESC1 new_desc = *pDesc1;
+	const reshade::api::resource_desc desc = reshade::d3d11::convert_resource_desc(*pDesc1);
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource>(
-		[this, &hr, &new_desc, ppTexture3D](reshade::api::device *, const reshade::api::resource_desc &desc, const reshade::api::subresource_data *initial_data, reshade::api::resource_usage) {
-			if (desc.type != reshade::api::resource_type::texture_3d)
-				return false;
-			reshade::d3d11::convert_resource_desc(desc, reinterpret_cast<D3D11_TEXTURE3D_DESC &>(new_desc));
-
-			assert(_interface_version >= 3);
-			hr = static_cast<ID3D11Device3 *>(_orig)->CreateTexture3D1(&new_desc, reinterpret_cast<const D3D11_SUBRESOURCE_DATA *>(initial_data), ppTexture3D);
-			if (SUCCEEDED(hr))
-			{
-				if (ppTexture3D != nullptr) // This can happen when application only wants to validate input parameters
-					_resources.register_object(*ppTexture3D);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device3::CreateTexture3D1" << " failed with error code " << hr << '.';
-#if RESHADE_VERBOSE_LOG
-				LOG(DEBUG) << "> Dumping description:";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
-				LOG(DEBUG) << "  | Width                                   | " << std::setw(39) << new_desc.Width << " |";
-				LOG(DEBUG) << "  | Height                                  | " << std::setw(39) << new_desc.Height << " |";
-				LOG(DEBUG) << "  | Depth                                   | " << std::setw(39) << new_desc.Depth << " |";
-				LOG(DEBUG) << "  | MipLevels                               | " << std::setw(39) << new_desc.MipLevels << " |";
-				LOG(DEBUG) << "  | Format                                  | " << std::setw(39) << new_desc.Format << " |";
-				LOG(DEBUG) << "  | Usage                                   | " << std::setw(39) << new_desc.Usage << " |";
-				LOG(DEBUG) << "  | BindFlags                               | " << std::setw(39) << std::hex << new_desc.BindFlags << std::dec << " |";
-				LOG(DEBUG) << "  | CPUAccessFlags                          | " << std::setw(39) << std::hex << new_desc.CPUAccessFlags << std::dec << " |";
-				LOG(DEBUG) << "  | MiscFlags                               | " << std::setw(39) << std::hex << new_desc.MiscFlags << std::dec << " |";
-				LOG(DEBUG) << "  | TextureLayout                           | " << std::setw(39) << new_desc.TextureLayout << " |";
-				LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
+	if (reshade::api::resource replacement = { 0 };
+		pDesc1->TextureLayout == D3D11_TEXTURE_LAYOUT_UNDEFINED &&
+		reshade::invoke_addon_event<reshade::addon_event::create_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, &replacement))
+	{
+		output_interface_object(ppTexture3D, replacement);
+		return S_OK;
+	}
 #endif
-				return false;
-			}
-		}, this, reshade::d3d11::convert_resource_desc(reinterpret_cast<D3D11_TEXTURE3D_DESC &>(new_desc)), reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::undefined);
+
+	assert(_interface_version >= 3);
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateTexture3D1(pDesc1, pInitialData, ppTexture3D);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_resources.register_object(*ppTexture3D);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource>(
+			this, desc, reinterpret_cast<const reshade::api::subresource_data *>(pInitialData), reshade::api::resource_usage::general, reshade::api::resource { reinterpret_cast<uintptr_t>(*ppTexture3D) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateTexture3D1" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState2(const D3D11_RASTERIZER_DESC2 *pRasterizerDesc, ID3D11RasterizerState2 **ppRasterizerState)
 {
+#if RESHADE_ADDON
+	if (ppRasterizerState == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateRasterizerState2(pRasterizerDesc, nullptr);
+
+	const reshade::api::pipeline_desc desc = reshade::d3d11::convert_pipeline_desc(pRasterizerDesc);
+
+	if (reshade::api::pipeline replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_pipeline>(this, desc, &replacement))
+	{
+		output_interface_object(ppRasterizerState, replacement);
+		return S_OK;
+	}
+#endif
+
 	assert(_interface_version >= 3);
-	return static_cast<ID3D11Device3 *>(_orig)->CreateRasterizerState2(pRasterizerDesc, ppRasterizerState);
-}
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView1(ID3D11Resource *pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC1 *pDesc1, ID3D11ShaderResourceView1 **ppSRView1)
-{
-	if (pResource == nullptr)
-		return E_INVALIDARG;
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateRasterizerState2(pRasterizerDesc, ppRasterizerState);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		reshade::invoke_addon_event<reshade::addon_event::init_pipeline>(this, desc, reshade::api::pipeline { reinterpret_cast<uintptr_t>(*ppRasterizerState) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateRasterizerState2" << " failed with error code " << hr << '.';
+#endif
+	}
 
-	D3D11_SHADER_RESOURCE_VIEW_DESC1 new_desc =
-		pDesc1 != nullptr ? *pDesc1 : D3D11_SHADER_RESOURCE_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN };
-
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppSRView1](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::shader_resource)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
-
-			assert(_interface_version >= 3);
-			hr = static_cast<ID3D11Device3 *>(_orig)->CreateShaderResourceView1(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_SRV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppSRView1);
-			if (SUCCEEDED(hr))
-			{
-				if (ppSRView1 != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppSRView1);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device3::CreateShaderResourceView1" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, reshade::d3d11::convert_resource_view_desc(new_desc));
 	return hr;
 }
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView1(ID3D11Resource *pResource, const D3D11_UNORDERED_ACCESS_VIEW_DESC1 *pDesc1, ID3D11UnorderedAccessView1 **ppUAView1)
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView1(ID3D11Resource *pResource, const D3D11_SHADER_RESOURCE_VIEW_DESC1 *pDesc1, ID3D11ShaderResourceView1 **ppShaderResourceView1)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr)
 		return E_INVALIDARG;
+	if (ppShaderResourceView1 == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateShaderResourceView1(pResource, pDesc1, nullptr);
 
-	D3D11_UNORDERED_ACCESS_VIEW_DESC1 new_desc =
-		pDesc1 != nullptr ? *pDesc1 : D3D11_UNORDERED_ACCESS_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc1 != nullptr ? *pDesc1 : D3D11_SHADER_RESOURCE_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppUAView1](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-			if (usage_type != reshade::api::resource_usage::unordered_access)
-				return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, desc, &replacement))
+	{
+		output_interface_object(ppShaderResourceView1, replacement);
+		return S_OK;
+	}
+#endif
 
-			assert(_interface_version >= 3);
-			hr = static_cast<ID3D11Device3 *>(_orig)->CreateUnorderedAccessView1(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_UAV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppUAView1);
-			if (SUCCEEDED(hr))
-			{
-				if (ppUAView1 != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppUAView1);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device3::CreateUnorderedAccessView1" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, reshade::d3d11::convert_resource_view_desc(new_desc));
+	assert(_interface_version >= 3);
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateShaderResourceView1(pResource, pDesc1, ppShaderResourceView1);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppShaderResourceView1);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::shader_resource, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppShaderResourceView1) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateShaderResourceView1" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
-HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetView1(ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC1 *pDesc1, ID3D11RenderTargetView1 **ppRTView1)
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView1(ID3D11Resource *pResource, const D3D11_UNORDERED_ACCESS_VIEW_DESC1 *pDesc1, ID3D11UnorderedAccessView1 **ppUnorderedAccessView1)
 {
+#if RESHADE_ADDON
 	if (pResource == nullptr)
 		return E_INVALIDARG;
+	if (ppUnorderedAccessView1 == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateUnorderedAccessView1(pResource, pDesc1, nullptr);
 
-	D3D11_RENDER_TARGET_VIEW_DESC1 new_desc =
-		pDesc1 != nullptr ? *pDesc1 : D3D11_RENDER_TARGET_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_UNKNOWN };
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc1 != nullptr ? *pDesc1 : D3D11_UNORDERED_ACCESS_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN });
 
-	HRESULT hr = E_FAIL;
-	reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
-		[this, &hr, &new_desc, ppRTView1](reshade::api::device *, reshade::api::resource resource, reshade::api::resource_usage usage_type, const reshade::api::resource_view_desc &desc) {
-		if (usage_type != reshade::api::resource_usage::render_target)
-			return false;
-			reshade::d3d11::convert_resource_view_desc(desc, new_desc);
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, desc, &replacement))
+	{
+		output_interface_object(ppUnorderedAccessView1, replacement);
+		return S_OK;
+	}
+#endif
 
-			assert(_interface_version >= 3);
-			hr = static_cast<ID3D11Device3 *>(_orig)->CreateRenderTargetView1(reinterpret_cast<ID3D11Resource *>(resource.handle), new_desc.ViewDimension != D3D11_RTV_DIMENSION_UNKNOWN ? &new_desc : nullptr, ppRTView1);
-			if (SUCCEEDED(hr))
-			{
-				if (ppRTView1 != nullptr) // This can happen when application only wants to validate input parameters
-					_views.register_object(*ppRTView1);
-				return true;
-			}
-			else
-			{
-				LOG(WARN) << "ID3D11Device3::CreateRenderTargetView1" << " failed with error code " << hr << '.';
-				return false;
-			}
-		}, this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, reshade::d3d11::convert_resource_view_desc(new_desc));
+	assert(_interface_version >= 3);
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateUnorderedAccessView1(pResource, pDesc1, ppUnorderedAccessView1);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppUnorderedAccessView1);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::unordered_access, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppUnorderedAccessView1) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateUnorderedAccessView1" << " failed with error code " << hr << '.';
+#endif
+	}
+
+	return hr;
+}
+HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetView1(ID3D11Resource *pResource, const D3D11_RENDER_TARGET_VIEW_DESC1 *pDesc1, ID3D11RenderTargetView1 **ppRenderTargetView1)
+{
+#if RESHADE_ADDON
+	if (pResource == nullptr)
+		return E_INVALIDARG;
+	if (ppRenderTargetView1 == nullptr) // This can happen when application only wants to validate input parameters
+		return static_cast<ID3D11Device3 *>(_orig)->CreateRenderTargetView1(pResource, pDesc1, nullptr);
+
+	const reshade::api::resource_view_desc desc = reshade::d3d11::convert_resource_view_desc(
+		pDesc1 != nullptr ? *pDesc1 : D3D11_RENDER_TARGET_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_UNKNOWN });
+
+	if (reshade::api::resource_view replacement = { 0 };
+		reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, desc, &replacement))
+	{
+		output_interface_object(ppRenderTargetView1, replacement);
+		return S_OK;
+	}
+#endif
+
+	assert(_interface_version >= 3);
+	const HRESULT hr = static_cast<ID3D11Device3 *>(_orig)->CreateRenderTargetView1(pResource, pDesc1, ppRenderTargetView1);
+	if (SUCCEEDED(hr))
+	{
+#if RESHADE_ADDON
+		_views.register_object(*ppRenderTargetView1);
+
+		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
+			this, reshade::api::resource { reinterpret_cast<uintptr_t>(pResource) }, reshade::api::resource_usage::render_target, desc, reshade::api::resource_view { reinterpret_cast<uintptr_t>(*ppRenderTargetView1) });
+#endif
+	}
+	else
+	{
+#if RESHADE_VERBOSE_LOG
+		LOG(WARN) << "ID3D11Device3::CreateRenderTargetView1" << " failed with error code " << hr << '.';
+#endif
+	}
+
 	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateQuery1(const D3D11_QUERY_DESC1 *pQueryDesc1, ID3D11Query1 **ppQuery1)
